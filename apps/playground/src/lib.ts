@@ -111,6 +111,13 @@ export const playgroundTwoslashConfig = {
 /** Parent → iframe: `iframe.contentWindow.postMessage({ type: PREVIEW_MESSAGE_TYPE, code }, "*")` */
 export const PREVIEW_MESSAGE_TYPE = "shedit-playground-preview-code";
 
+/** Parent → iframe: sync `html.dark` with OS theme without reloading the shell. */
+export const PREVIEW_THEME_MESSAGE_TYPE = "shedit-playground-preview-theme";
+
+export function systemColorSchemeMediaQuery(): MediaQueryList {
+  return window.matchMedia("(prefers-color-scheme: dark)");
+}
+
 /** Inline Areia tokens (Play CDN cannot run `@plugin "areia"`). From imprensa starter preview. */
 const DEFAULT_PREVIEW_TAILWIND_STYLE = `
 @theme {
@@ -160,9 +167,15 @@ const DEFAULT_PREVIEW_TAILWIND_STYLE = `
   --color-areia-control-disabled-foreground: oklch(43.9% 0 0);
 }
 body {
+  background: var(--color-areia-background, white);
+  color: var(--color-areia-text-default);
   padding: 1rem;
 }
 `.trim();
+
+export function systemPrefersDark(): boolean {
+  return window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
 
 function buildPreviewTailwindCss(userStyle = ""): string {
   const extra = userStyle.trim();
@@ -176,8 +189,9 @@ function escapeTailwindCss(css: string): string {
 
 export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
   const tailwindBlock = escapeTailwindCss(buildPreviewTailwindCss(tailwindThemeCss));
+  const darkClass = systemPrefersDark() ? ` class="dark"` : "";
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="en"${darkClass}>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -206,7 +220,31 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
         font: 13px/1.4 ui-monospace, monospace;
         white-space: pre-wrap;
       }
+      html.dark .preview-error {
+        background: #450a0a;
+        border-color: #7f1d1d;
+        color: #fecaca;
+      }
     </style>
+    <script>
+      (function () {
+        var THEME_MSG = ${JSON.stringify(PREVIEW_THEME_MESSAGE_TYPE)};
+        var themeMq = window.matchMedia("(prefers-color-scheme: dark)");
+        function applyPreviewColorScheme(dark) {
+          document.documentElement.classList.toggle("dark", !!dark);
+        }
+        function applyFromSystem() {
+          applyPreviewColorScheme(themeMq.matches);
+        }
+        applyFromSystem();
+        themeMq.addEventListener("change", applyFromSystem);
+        window.addEventListener("message", function (event) {
+          var data = event.data;
+          if (!data || data.type !== THEME_MSG || typeof data.dark !== "boolean") return;
+          applyPreviewColorScheme(data.dark);
+        });
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
@@ -369,4 +407,10 @@ export function postPreviewCode(iframe: HTMLIFrameElement, code: string): void {
   const win = iframe.contentWindow;
   if (!win) return;
   win.postMessage({ type: PREVIEW_MESSAGE_TYPE, code }, "*");
+}
+
+export function postPreviewTheme(iframe: HTMLIFrameElement, dark: boolean): void {
+  const win = iframe.contentWindow;
+  if (!win) return;
+  win.postMessage({ type: PREVIEW_THEME_MESSAGE_TYPE, dark }, "*");
 }

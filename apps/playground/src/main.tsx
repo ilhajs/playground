@@ -12,7 +12,10 @@ import {
   parsePlaygroundSettings,
   playgroundTwoslashConfig,
   postPreviewCode,
+  postPreviewTheme,
   PREVIEW_MESSAGE_TYPE,
+  systemColorSchemeMediaQuery,
+  systemPrefersDark,
   scheduleCodeSearchParamSync,
   syncCodeSearchParam,
   type PlaygroundSettings,
@@ -54,9 +57,17 @@ const App = ilha
     display: contents;
   }
   .layout {
+    --color-areia-background: var(--color-white, #fff);
+    --color-areia-border: oklch(93.5% 0 0);
     min-height: 100vh;
     width: 100%;
     display: flex;
+  }
+  @media (prefers-color-scheme: dark) {
+    .layout {
+      --color-areia-background: oklch(10% 0 0);
+      --color-areia-border: oklch(26.9% 0 0);
+    }
   }
   .layout--horizontal {
     flex-direction: row;
@@ -65,17 +76,17 @@ const App = ilha
     flex-direction: column;
   }
   .layout--horizontal .editor {
-    border-right: 1px solid #e0e0e0;
+    border-right: 1px solid var(--color-areia-border);
   }
   .layout--vertical .editor {
-    border-bottom: 1px solid #e0e0e0;
+    border-bottom: 1px solid var(--color-areia-border);
   }
   .preview {
     flex: 1;
     border: none;
     width: 100%;
     min-height: 0;
-    background: #fff;
+    background: var(--color-areia-background);
   }
   .editor {
     flex: 1;
@@ -100,19 +111,19 @@ const App = ilha
     border-top: 1px solid var(--playground-bar-border, #e8e8e8);
     border-left: 1px solid var(--playground-bar-border, #e8e8e8);
     border-top-left-radius: 6px;
+    --playground-bar-bg-active: #e0e0e0;
+    --playground-bar-icon-filter: none;
   }
   @media (prefers-color-scheme: dark) {
     .playground-bar {
       --playground-bar-bg: #252526;
       --playground-bar-border: #2d2d2d;
-      --playground-bar-fg: #5a5a5a;
-      --playground-bar-fg-hover: #cccccc;
+      --playground-bar-fg: #8a8a8a;
+      --playground-bar-fg-hover: #e8e8e8;
       --playground-bar-bg-hover: #2d2d2d;
-      --playground-bar-bg-active: #1e1e1e;
+      --playground-bar-bg-active: oklch(17% 0 0);
+      --playground-bar-icon-filter: invert(1) brightness(1.05);
     }
-  }
-  .playground-bar {
-    --playground-bar-bg-active: #e0e0e0;
   }
   .playground-bar__link {
     margin-right: 4px;
@@ -157,6 +168,7 @@ const App = ilha
     height: 18px;
     display: block;
     opacity: 0.85;
+    filter: var(--playground-bar-icon-filter);
   }
   .playground-bar__btn:hover img,
   .playground-bar__btn--active img {
@@ -165,11 +177,25 @@ const App = ilha
   `
   .onMount(({ state }) => {
     const iframe = document.querySelector<HTMLIFrameElement>("iframe.preview");
+    const cleanups: (() => void)[] = [];
+
     if (iframe) {
-      iframe.srcdoc = buildPreviewShellSrcdoc(initialSettings.style);
-      iframe.addEventListener("load", () => schedulePreviewPost(iframe, state.source()), {
-        once: true,
-      });
+      const setPreviewShell = () => {
+        iframe.srcdoc = buildPreviewShellSrcdoc(initialSettings.style);
+      };
+      setPreviewShell();
+      const onIframeLoad = () => {
+        schedulePreviewPost(iframe, state.source());
+        postPreviewTheme(iframe, systemPrefersDark());
+      };
+      iframe.addEventListener("load", onIframeLoad, { once: true });
+
+      const themeMq = systemColorSchemeMediaQuery();
+      const onSystemThemeChange = () => {
+        postPreviewTheme(iframe, themeMq.matches);
+      };
+      themeMq.addEventListener("change", onSystemThemeChange);
+      cleanups.push(() => themeMq.removeEventListener("change", onSystemThemeChange));
     }
 
     const wireEditorOnChange = (): void => {
@@ -184,14 +210,20 @@ const App = ilha
     queueMicrotask(wireEditorOnChange);
 
     if (initialSettings.mode === "preview") {
-      window.addEventListener("message", (event) => {
+      const onParentMessage = (event: MessageEvent) => {
         const data = event.data;
         if (!data || data.type !== PREVIEW_MESSAGE_TYPE || typeof data.code !== "string") return;
         state.source(data.code);
         const el = document.querySelector<HTMLIFrameElement>("iframe.preview");
         if (el) schedulePreviewPost(el, data.code);
-      });
+      };
+      window.addEventListener("message", onParentMessage);
+      cleanups.push(() => window.removeEventListener("message", onParentMessage));
     }
+
+    return () => {
+      for (const fn of cleanups) fn();
+    };
   })
   .effect(({ state }) => {
     const iframe = document.querySelector<HTMLIFrameElement>("iframe.preview");
@@ -216,6 +248,9 @@ const App = ilha
     const next = mode === "editor" ? "preview" : "editor";
     syncCodeSearchParam(state.source());
     navigateWithMode(next);
+  })
+  .on("[data-action=open-external]@click", () => {
+    window.open(location.href, "_blank", "noopener,noreferrer");
   })
   .render(({ state }) => {
     const { mode, layout } = state.settings();
@@ -277,6 +312,15 @@ const App = ilha
               <img src="/rows-2.svg" alt="" width="18" height="18" />
             </button>
           ) : null}
+          <button
+            type="button"
+            class="playground-bar__btn"
+            data-action="open-external"
+            aria-label="Open current URL in new tab"
+            title="Open in new tab"
+          >
+            <img src="/external-link.svg" alt="" width="18" height="18" />
+          </button>
         </div>
       </>
     );
