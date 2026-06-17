@@ -193,11 +193,52 @@ function escapeTailwindCss(css: string): string {
 export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
   const tailwindBlock = escapeTailwindCss(buildPreviewTailwindCss(tailwindThemeCss));
   const darkClass = systemPrefersDark() ? ` class="dark"` : "";
+  const previewBgLight = "#ffffff";
+  const previewBgDark = "oklch(10% 0 0)";
+  const previewFgDark = "oklch(97% 0 0)";
+  const initialDark = systemPrefersDark();
   return `<!DOCTYPE html>
 <html lang="en"${darkClass}>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      html {
+        background: ${previewBgLight};
+        color-scheme: light;
+      }
+      html.dark {
+        background: ${previewBgDark};
+        color: ${previewFgDark};
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        background: inherit;
+        color: inherit;
+      }
+      #root {
+        min-height: 100vh;
+        background: inherit;
+      }
+    </style>
+    <script>
+      (function () {
+        var mq = window.matchMedia("(prefers-color-scheme: dark)");
+        var THEME_MSG = ${JSON.stringify(PREVIEW_THEME_MESSAGE_TYPE)};
+        function apply(dark) {
+          document.documentElement.classList.toggle("dark", !!dark);
+          document.documentElement.style.colorScheme = dark ? "dark" : "light";
+        }
+        apply(${initialDark ? "true" : "false"});
+        mq.addEventListener("change", function () { apply(mq.matches); });
+        window.addEventListener("message", function (event) {
+          var data = event.data;
+          if (!data || data.type !== THEME_MSG || typeof data.dark !== "boolean") return;
+          apply(data.dark);
+        });
+      })();
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <style type="text/tailwindcss">${tailwindBlock}</style>
     <script type="importmap" id="importmap">
@@ -229,25 +270,6 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
         color: #fecaca;
       }
     </style>
-    <script>
-      (function () {
-        var THEME_MSG = ${JSON.stringify(PREVIEW_THEME_MESSAGE_TYPE)};
-        var themeMq = window.matchMedia("(prefers-color-scheme: dark)");
-        function applyPreviewColorScheme(dark) {
-          document.documentElement.classList.toggle("dark", !!dark);
-        }
-        function applyFromSystem() {
-          applyPreviewColorScheme(themeMq.matches);
-        }
-        applyFromSystem();
-        themeMq.addEventListener("change", applyFromSystem);
-        window.addEventListener("message", function (event) {
-          var data = event.data;
-          if (!data || data.type !== THEME_MSG || typeof data.dark !== "boolean") return;
-          applyPreviewColorScheme(data.dark);
-        });
-      })();
-    </script>
   </head>
   <body>
     <div id="root"></div>

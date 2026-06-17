@@ -2,6 +2,44 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      (function () {
+        var mq = window.matchMedia("(prefers-color-scheme: dark)");
+        var root = document.documentElement;
+        function paint() {
+          var dark = mq.matches;
+          root.classList.toggle("dark", dark);
+          root.style.colorScheme = dark ? "dark" : "light";
+          root.style.backgroundColor = dark ? "oklch(10% 0 0)" : "#ffffff";
+        }
+        paint();
+        mq.addEventListener("change", paint);
+      })();
+    </script>
+    <style>
+      html {
+        background: #ffffff;
+        color-scheme: light;
+      }
+      html.dark {
+        background: oklch(10% 0 0);
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        background: inherit;
+      }
+      #app {
+        min-height: 100vh;
+        background: inherit;
+      }
+      iframe.preview {
+        background: #ffffff;
+      }
+      html.dark iframe.preview {
+        background: oklch(10% 0 0);
+      }
+    </style>
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Ilha Playground</title>
