@@ -1,0 +1,50 @@
+{
+  "name": "shedit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shiki highlighted textarea",
+  "homepage": "https://github.com/ilhajs/playground#readme",
+  "bugs": {
+    "url": "https://github.com/ilhajs/playground/issues"
+  },
+  "license": "MIT",
+  "author": "Ryuz <ryuzer@proton.me>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ilhajs/playground.git"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "module": "./dist/index.js",
+  "browser": {
+    "process": false
+  },
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc && tsdown",
+    "test:app": "bun test/index.html"
+  },
+  "dependencies": {
+    "@shikijs/twoslash": "^4.2.0",
+    "shiki-highlight-api": "^1.1.1",
+    "twoslash": "^0.3.8",
+    "twoslash-cdn": "^0.3.8",
+    "typescript": "5.7.3"
+  },
+  "devDependencies": {
+    "tsdown": "^0.22.3"
+  },
+  "peerDependencies": {
+    "ilha": "^0.8",
+    "shiki": "^4"
+  }
+}
