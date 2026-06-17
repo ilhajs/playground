@@ -31,8 +31,6 @@ jobs:
         run: bun run --cwd packages/shedit build
 
       - name: Build playground
-        env:
-          BASE_PATH: /${{ github.event.repository.name }}/
         run: bun run --cwd apps/playground build
 
       - name: Upload Pages artifact
