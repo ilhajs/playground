@@ -44,10 +44,15 @@ export function encodeBase64UrlParam(source: string): string {
 
 export function parsePlaygroundSettings(search: string | URLSearchParams): PlaygroundSettings {
   const params = typeof search === "string" ? new URLSearchParams(search) : search;
+  const codeParam = params.get("code");
+  const code =
+    codeParam === null || codeParam === ""
+      ? DEFAULT_PLAYGROUND_CODE
+      : decodeUrlParam(codeParam, DEFAULT_PLAYGROUND_CODE);
   return {
     mode: params.get("mode") === "preview" ? "preview" : "editor",
     layout: params.get("layout") === "vertical" ? "vertical" : "horizontal",
-    code: decodeUrlParam(params.get("code"), DEFAULT_PLAYGROUND_CODE),
+    code,
     style: decodeUrlParam(params.get("style"), ""),
   };
 }

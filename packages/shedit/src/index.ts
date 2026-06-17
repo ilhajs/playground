@@ -9,6 +9,16 @@ import {
   renderTwoslashMirrorHtml,
   type TwoslashEditorOptions,
 } from "./twoslash.ts";
+import {
+  cutWholeLine,
+  duplicateLines,
+  indentLineBlock,
+  isTypingUndoBoundary,
+  outdentLineBlock,
+  shouldAutoPairQuote,
+  splitDocumentValue,
+  toggleLineComments,
+} from "./lib.ts";
 
 export {
   codeToHighlightHtml,
@@ -51,6 +61,8 @@ export type ShikiEditorInput = {
   fontSize?: number;
   fontFamily?: string;
   value?: string;
+  /** Shown when the document is empty (native `placeholder` is unreliable with a syntax mirror). */
+  placeholder?: string;
   ariaLabel?: string;
   /**
    * Twoslash type hints for TS/JS/TSX (on by default). Opt out with `false`.
@@ -155,6 +167,7 @@ function editorShellMarkup() {
       <div class="shedit__code">
         <pre class="shedit__mirror shedit__mirror-hl" aria-hidden="true"><code></code></pre>
         <pre class="shedit__mirror shedit__mirror-twoslash" aria-hidden="true"><code></code></pre>
+        <div class="shedit__placeholder" aria-hidden="true"></div>
         <textarea
           class="shedit__textarea"
           spellcheck="false"
@@ -435,10 +448,15 @@ function diffLines(oldLines: LineRecord[], newLines: string[]): [number, number,
   return [start, oldEnd, newEnd];
 }
 
-function splitDocumentValue(value: string): string[] {
-  if (value.length === 0) return [""];
-  return value.split("\n");
-}
+type EditorHistorySnap = { value: string; start: number; end: number };
+
+const HISTORY_CAP = 200;
+/** Merge consecutive typed characters into one undo step until idle or a word boundary. */
+const TYPING_UNDO_IDLE_MS = 450;
+
+const BRACKET_OPEN = new Set(["(", "[", "{"]);
+const BRACKET_CLOSE: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
+const QUOTE_CHARS = new Set(['"', "'", "`"]);
 
 // ─── 5–6. Editor controller ───────────────────────────────────────────────────
 
@@ -482,6 +500,7 @@ function attachShikiEditor(host: HTMLElement, options: ShikiEditorInput): ShikiE
     theme: themeMode = "system",
     onChange: initialOnChange,
     ariaLabel,
+    placeholder: placeholderText = "",
   } = options;
   let onChange = initialOnChange;
 
@@ -497,6 +516,13 @@ function attachShikiEditor(host: HTMLElement, options: ShikiEditorInput): ShikiE
   let gutterSyncRaf = 0;
   let activeLine = -1;
   let gutterBuiltForLines = -1;
+
+  let undoStack: EditorHistorySnap[] = [];
+  let redoStack: EditorHistorySnap[] = [];
+  let lastHistoryValue = value;
+  let skipHistoryRecord = false;
+  let typingBatchSnap: EditorHistorySnap | null = null;
+  let typingIdleTimer = 0;
 
   const lifetime = new AbortController();
   let tokenizeAbort = new AbortController();
@@ -517,6 +543,14 @@ function attachShikiEditor(host: HTMLElement, options: ShikiEditorInput): ShikiE
   };
 
   if (ariaLabel) view.textarea.setAttribute("aria-label", ariaLabel);
+
+  const placeholderEl = host.querySelector<HTMLDivElement>(`.${BLOCK}__placeholder`);
+  function syncPlaceholder(): void {
+    if (!placeholderEl) return;
+    const show = placeholderText.length > 0 && view.textarea.value.length === 0;
+    placeholderEl.classList.toggle(`${BLOCK}__placeholder--visible`, show);
+    placeholderEl.textContent = show ? placeholderText : "";
+  }
 
   let twoslashActive = useTwoslash;
   if (twoslashActive) {
@@ -862,18 +896,280 @@ function attachShikiEditor(host: HTMLElement, options: ShikiEditorInput): ShikiE
     return doc;
   }
 
-  function onInput(): void {
-    const doc = syncTextareaDocument(view.textarea.value);
+  function clearTypingIdleTimer(): void {
+    if (typingIdleTimer) {
+      clearTimeout(typingIdleTimer);
+      typingIdleTimer = 0;
+    }
+  }
+
+  function flushTypingBatch(): void {
+    clearTypingIdleTimer();
+    if (skipHistoryRecord || !typingBatchSnap) {
+      typingBatchSnap = null;
+      return;
+    }
+    const cur = view.textarea.value;
+    if (typingBatchSnap.value !== cur) {
+      undoStack.push(typingBatchSnap);
+      if (undoStack.length > HISTORY_CAP) undoStack.shift();
+      redoStack.length = 0;
+    }
+    typingBatchSnap = null;
+  }
+
+  function scheduleTypingIdleFlush(): void {
+    clearTypingIdleTimer();
+    typingIdleTimer = window.setTimeout(() => {
+      typingIdleTimer = 0;
+      flushTypingBatch();
+    }, TYPING_UNDO_IDLE_MS);
+  }
+
+  function beginTypingBatchIfNeeded(): void {
+    if (skipHistoryRecord) return;
+    if (!typingBatchSnap) {
+      typingBatchSnap = {
+        value: view.textarea.value,
+        start: view.textarea.selectionStart,
+        end: view.textarea.selectionEnd,
+      };
+    }
+  }
+
+  function recordUndoBeforeEdit(): void {
+    if (skipHistoryRecord) return;
+    flushTypingBatch();
+    const v = view.textarea.value;
+    undoStack.push({
+      value: v,
+      start: view.textarea.selectionStart,
+      end: view.textarea.selectionEnd,
+    });
+    if (undoStack.length > HISTORY_CAP) undoStack.shift();
+    redoStack.length = 0;
+  }
+
+  function applyTextEdit(nextRaw: string, selStart: number, selEnd: number): void {
+    recordUndoBeforeEdit();
+    view.textarea.value = nextRaw;
+    view.textarea.setSelectionRange(selStart, selEnd);
+    const doc = syncTextareaDocument(nextRaw);
     commitEdit(doc);
     onChange?.(doc);
+    lastHistoryValue = doc;
+    updateActiveLine();
     syncGutter();
+    syncPlaceholder();
+  }
+
+  function restoreHistorySnap(snap: EditorHistorySnap): void {
+    skipHistoryRecord = true;
+    view.textarea.value = snap.value;
+    view.textarea.setSelectionRange(snap.start, snap.end);
+    const doc = syncTextareaDocument(snap.value);
+    commitEdit(doc);
+    onChange?.(doc);
+    lastHistoryValue = doc;
+    skipHistoryRecord = false;
+    updateActiveLine();
+    syncGutter();
+    syncPlaceholder();
+  }
+
+  function onUndo(): boolean {
+    flushTypingBatch();
+    if (!undoStack.length) return false;
+    const cur: EditorHistorySnap = {
+      value: view.textarea.value,
+      start: view.textarea.selectionStart,
+      end: view.textarea.selectionEnd,
+    };
+    const snap = undoStack.pop()!;
+    redoStack.push(cur);
+    restoreHistorySnap(snap);
+    return true;
+  }
+
+  function onRedo(): boolean {
+    flushTypingBatch();
+    if (!redoStack.length) return false;
+    const cur: EditorHistorySnap = {
+      value: view.textarea.value,
+      start: view.textarea.selectionStart,
+      end: view.textarea.selectionEnd,
+    };
+    const snap = redoStack.pop()!;
+    undoStack.push(cur);
+    restoreHistorySnap(snap);
+    return true;
+  }
+
+  function onBeforeInput(e: InputEvent): void {
+    if (skipHistoryRecord) return;
+
+    const t = e.inputType;
+    const isInsert = t.startsWith("insert");
+    const isDelete = t.startsWith("delete");
+
+    if (isDelete) {
+      flushTypingBatch();
+      typingBatchSnap = {
+        value: view.textarea.value,
+        start: view.textarea.selectionStart,
+        end: view.textarea.selectionEnd,
+      };
+      return;
+    }
+
+    if (!isInsert) {
+      flushTypingBatch();
+      return;
+    }
+
+    if (view.textarea.selectionStart !== view.textarea.selectionEnd) {
+      flushTypingBatch();
+    }
+
+    const data = e.data ?? "";
+    if (data.length > 1) {
+      flushTypingBatch();
+      typingBatchSnap = {
+        value: view.textarea.value,
+        start: view.textarea.selectionStart,
+        end: view.textarea.selectionEnd,
+      };
+      return;
+    }
+
+    beginTypingBatchIfNeeded();
+  }
+
+  function onInput(e: Event): void {
+    const inputEv = e as InputEvent;
+    const doc = syncTextareaDocument(view.textarea.value);
+
+    if (!skipHistoryRecord && typingBatchSnap) {
+      const data = inputEv.data ?? "";
+      const t = inputEv.inputType;
+      if (t.startsWith("delete")) {
+        flushTypingBatch();
+      } else if (data.length > 1) {
+        flushTypingBatch();
+      } else if (isTypingUndoBoundary(data)) {
+        flushTypingBatch();
+      } else {
+        scheduleTypingIdleFlush();
+      }
+    }
+
+    commitEdit(doc);
+    onChange?.(doc);
+    lastHistoryValue = doc;
+    syncGutter();
+    syncPlaceholder();
   }
 
   function onKeydown(e: KeyboardEvent): void {
     const { textarea } = view;
     const { tabSize } = layout;
+    const mod = e.metaKey || e.ctrlKey;
+    const alt = e.altKey;
 
-    if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+    if (mod && e.key === "z" && !e.shiftKey) {
+      if (onUndo()) e.preventDefault();
+      return;
+    }
+    if (mod && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
+      if (onRedo()) e.preventDefault();
+      return;
+    }
+
+    if (mod && e.key === "/" && !e.shiftKey && !alt) {
+      e.preventDefault();
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const { value: next, start: s, end: en } = toggleLineComments(textarea.value, start, end);
+      applyTextEdit(next, s, en);
+      return;
+    }
+
+    if (mod && e.key === "d" && !e.shiftKey && !alt) {
+      e.preventDefault();
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const { value: next, start: s, end: en } = duplicateLines(textarea.value, start, end);
+      applyTextEdit(next, s, en);
+      return;
+    }
+
+    if (mod && e.key === "x" && !e.shiftKey && !alt) {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      if (start === end) {
+        e.preventDefault();
+        const { value: next, start: s, end: en, cutText } = cutWholeLine(textarea.value, start);
+        void navigator.clipboard.writeText(cutText).catch(() => {});
+        applyTextEdit(next, s, en);
+        return;
+      }
+    }
+
+    if (!mod && !alt && e.key === "Backspace") {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      if (start === end && start > 0) {
+        const raw = textarea.value;
+        const open = raw[start - 1];
+        const close = raw[start];
+        const pairedBracket =
+          open && close && BRACKET_OPEN.has(open) && BRACKET_CLOSE[open] === close;
+        const pairedQuote = open && close && open === close && QUOTE_CHARS.has(open);
+        if (pairedBracket || pairedQuote) {
+          e.preventDefault();
+          const next = raw.slice(0, start - 1) + raw.slice(start + 1);
+          applyTextEdit(next, start - 1, start - 1);
+          return;
+        }
+      }
+    }
+
+    if (!mod && !alt && e.key.length === 1) {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      if (start !== end) {
+        /* fall through */
+      } else {
+        const raw = textarea.value;
+        const ch = e.key;
+
+        if (BRACKET_OPEN.has(ch)) {
+          e.preventDefault();
+          const close = BRACKET_CLOSE[ch]!;
+          const next = raw.slice(0, start) + ch + close + raw.slice(end);
+          applyTextEdit(next, start + 1, start + 1);
+          return;
+        }
+
+        if (QUOTE_CHARS.has(ch) && shouldAutoPairQuote(raw, start)) {
+          e.preventDefault();
+          const next = raw.slice(0, start) + ch + ch + raw.slice(end);
+          applyTextEdit(next, start + 1, start + 1);
+          return;
+        }
+
+        if (ch in BRACKET_CLOSE || QUOTE_CHARS.has(ch)) {
+          const at = raw[start];
+          if (at === ch) {
+            e.preventDefault();
+            textarea.setSelectionRange(start + 1, start + 1);
+            return;
+          }
+        }
+      }
+    }
+
+    if (e.key === "Enter" && !e.shiftKey && !mod) {
       e.preventDefault();
       const start = textarea.selectionStart;
       const end = textarea.selectionEnd;
@@ -883,12 +1179,7 @@ function attachShikiEditor(host: HTMLElement, options: ShikiEditorInput): ShikiE
       const indent = before.slice(lineStart).match(/^[ \t]*/)?.[0] ?? "";
       const inserted = "\n" + indent;
       const next = before + inserted + after;
-      textarea.value = next;
-      textarea.selectionStart = textarea.selectionEnd = start + inserted.length;
-      const doc = syncTextareaDocument(next);
-      commitEdit(doc);
-      onChange?.(doc);
-      updateActiveLine();
+      applyTextEdit(next, start + inserted.length, start + inserted.length);
       return;
     }
 
@@ -896,33 +1187,14 @@ function attachShikiEditor(host: HTMLElement, options: ShikiEditorInput): ShikiE
     e.preventDefault();
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
+    const raw = textarea.value;
 
     if (e.shiftKey) {
-      const before = textarea.value.slice(0, start);
-      const after = textarea.value.slice(end);
-      const selected = textarea.value.slice(start, end);
-      const lineStart = before.lastIndexOf("\n") + 1;
-      const prefix = textarea.value.slice(lineStart, start);
-      const block = prefix + selected;
-      const re = new RegExp(`^( {1,${tabSize}})`, "gm");
-      const dedented = block.replace(re, "");
-      const removed = block.length - dedented.length;
-      const next = textarea.value.slice(0, lineStart) + dedented + after;
-      textarea.value = next;
-      const prefixRemoved = Math.max(0, prefix.length - dedented.split("\n")[0]!.length);
-      textarea.selectionStart = Math.max(lineStart, start - prefixRemoved);
-      textarea.selectionEnd = end - removed;
-      const doc = syncTextareaDocument(next);
-      commitEdit(doc);
-      onChange?.(doc);
+      const { value: next, start: s, end: en } = outdentLineBlock(raw, start, end, tabSize);
+      applyTextEdit(next, s, en);
     } else {
-      const tab = " ".repeat(tabSize);
-      const next = textarea.value.slice(0, start) + tab + textarea.value.slice(end);
-      textarea.value = next;
-      textarea.selectionStart = textarea.selectionEnd = start + tabSize;
-      const doc = syncTextareaDocument(next);
-      commitEdit(doc);
-      onChange?.(doc);
+      const { value: next, start: s, end: en } = indentLineBlock(raw, start, end, tabSize);
+      applyTextEdit(next, s, en);
     }
   }
 
@@ -939,6 +1211,7 @@ function attachShikiEditor(host: HTMLElement, options: ShikiEditorInput): ShikiE
     updateActiveLine();
   }
 
+  view.textarea.addEventListener("beforeinput", onBeforeInput, { signal: lifetime.signal });
   view.textarea.addEventListener("input", onInput, { signal: lifetime.signal });
   view.textarea.addEventListener("keydown", onKeydown, { signal: lifetime.signal });
   view.textarea.addEventListener("scroll", onScroll, { passive: true, signal: lifetime.signal });
@@ -948,6 +1221,12 @@ function attachShikiEditor(host: HTMLElement, options: ShikiEditorInput): ShikiE
     const doc = normalizeEditorDocument(newValue, twoslashActive);
     view.textarea.value = doc;
     commitEdit(doc);
+    undoStack.length = 0;
+    redoStack.length = 0;
+    lastHistoryValue = doc;
+    typingBatchSnap = null;
+    clearTypingIdleTimer();
+    syncPlaceholder();
   }
 
   function getValue(): string {
@@ -977,6 +1256,7 @@ function attachShikiEditor(host: HTMLElement, options: ShikiEditorInput): ShikiE
     tokenizeAbort.abort();
     if (scrollRaf) cancelAnimationFrame(scrollRaf);
     if (gutterSyncRaf) cancelAnimationFrame(gutterSyncRaf);
+    clearTypingIdleTimer();
     if (twoslashTimer) clearTimeout(twoslashTimer);
     twoslashUi?.dispose();
     highlight.dispose();
@@ -1087,6 +1367,30 @@ const EDITOR_CSS = `
     position: relative;
     flex: 1 1 auto;
     overflow: hidden;
+  }
+
+  .shedit__placeholder {
+    position: absolute;
+    inset: 0;
+    padding: var(--shedit-pad-y, 16px) var(--shedit-pad-x, 16px);
+    pointer-events: none;
+    user-select: none;
+    white-space: pre-wrap;
+    color: var(--shedit-placeholder-fg, #a0a0a0);
+    opacity: 0;
+    overflow: hidden;
+    font: inherit;
+    font-size: inherit;
+    line-height: var(--shedit-line-height, 22px);
+    box-sizing: border-box;
+  }
+
+  .shedit__placeholder--visible {
+    opacity: 1;
+  }
+
+  .shedit[data-theme="dark"] .shedit__placeholder {
+    --shedit-placeholder-fg: #6a6a6a;
   }
 
   .shedit__mirror,

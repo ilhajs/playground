@@ -7,6 +7,7 @@ import { Editor, type ShikiEditorHandle } from "shedit";
 import ilha from "ilha";
 import {
   buildPreviewShellSrcdoc,
+  DEFAULT_PLAYGROUND_CODE,
   navigateWithLayout,
   navigateWithMode,
   parsePlaygroundSettings,
@@ -32,7 +33,7 @@ const app = document.querySelector<HTMLElement>("#app")!;
 
 const initialSettings = parsePlaygroundSettings(location.search);
 /** Set once from URL before first paint; Editor must not receive reactive `value`. */
-let editorSeed = initialSettings.code;
+let editorSeed = initialSettings.code || DEFAULT_PLAYGROUND_CODE;
 let lastPostedPreview = "";
 
 const shiki = await createHighlighter({
@@ -268,6 +269,7 @@ const App = ilha
                 themes={themes}
                 theme="system"
                 value={editorSeed}
+                placeholder="Write Ilha TSX here…"
                 ariaLabel="TSX editor (hover ~1s or hold Ctrl/⌘ for types)"
                 twoslash={playgroundTwoslashConfig}
               />
