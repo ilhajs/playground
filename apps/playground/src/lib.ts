@@ -14,9 +14,7 @@ export type PlaygroundSettings = {
 
 export const DEFAULT_PLAYGROUND_CODE = `import ilha from "ilha";
 
-const Hello = ilha.render(() => <p>Hello, World!</p>)
-
-Hello.mount(document.querySelector("#root"));
+export default ilha.render(() => <p>Hello, World!</p>)
 `;
 
 function decodeBase64Utf8(raw: string): string {
@@ -295,8 +293,17 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
         oldRoot.replaceWith(next);
       }
 
-      function preprocessMountCalls(source) {
-        return source.replace(
+      function preprocessPreviewSource(source) {
+        let s = source;
+        const hasMount = /\\.mount\\s*\\(/.test(s);
+        if (!hasMount && /export\\s+default\\b/.test(s)) {
+          s = s.replace(/export\\s+default\\s+/, "const __previewDefaultExport = ");
+          s =
+            s.trimEnd() +
+            "\\nexport default __previewDefaultExport;\\n" +
+            "__previewMount(document.querySelector(\\"#root\\"), __previewDefaultExport);\\n";
+        }
+        return s.replace(
           /([\\w$]+)\\.mount\\(\\s*(document\\.querySelector\\([^)]+\\))\\s*\\)/g,
           "__previewMount($2, $1)",
         );
@@ -344,7 +351,7 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
 
       async function runUserCode(code) {
         const gen = ++runGen;
-        const source = preprocessMountCalls(code.trim() || FALLBACK);
+        const source = preprocessPreviewSource(code.trim() || FALLBACK);
         const importMap = readImportMap();
 
         let payload;
