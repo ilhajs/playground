@@ -30,6 +30,7 @@ function allowFraming(): Plugin {
 }
 
 export default defineConfig({
+  base: process.env.BASE_PATH || "/",
   plugins: [allowFraming()],
   resolve: {
     alias: {
