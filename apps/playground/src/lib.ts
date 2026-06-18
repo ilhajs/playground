@@ -432,12 +432,6 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
           "  if (el.id === \\"root\\" && globalThis.__previewActiveGen !== __PREVIEW_RUN_GEN) return null;",
           "  if (el.id === \\"root\\") __previewUnmountFor(\\"__previewLastUnmount\\");",
           "  if (el.id === \\"preview-toaster\\") __previewUnmountFor(\\"__previewToasterUnmount\\");",
-          "  if (el.id === \\"root\\") {",
-          "    const fresh = document.createElement(\\"div\\");",
-          "    fresh.id = \\"root\\";",
-          "    el.replaceWith(fresh);",
-          "    el = fresh;",
-          "  }",
           "  let result;",
           "  try {",
           "    result = island.mount(el);",
@@ -517,11 +511,13 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
       void mountPreviewToaster();
 
       window.addEventListener("error", (event) => {
-        const fromPreview =
-          event.filename === "" ||
-          event.filename?.includes("preview-compiled") ||
-          event.filename?.includes("preview-toaster");
-        if (!fromPreview) return;
+        const fromUserPreview = event.filename?.includes("preview-compiled");
+        const fromToaster = event.filename?.includes("preview-toaster");
+        if (!fromUserPreview && !fromToaster && event.filename !== "") return;
+        if (fromToaster) {
+          console.warn("[playground preview] toaster error", event.message);
+          return;
+        }
         const msg = String(event.message || "");
         if (/already mounted/i.test(msg)) {
           showError(
@@ -538,18 +534,16 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
       });
       window.addEventListener("unhandledrejection", (event) => {
         const reason = event.reason;
-        showError(
-          reason && reason.stack
-            ? String(reason.stack)
-            : String(reason ?? "Unhandled promise rejection"),
-        );
+        const text = reason && reason.stack ? String(reason.stack) : String(reason ?? "");
+        if (!text || /preview-toaster/i.test(text)) return;
+        showError(text || "Unhandled promise rejection");
       });
 
       async function runUserCode(code) {
         const gen = ++runGen;
-        globalThis.__previewActiveGen = 0;
+        globalThis.__previewActiveGen = gen;
         lastPreviewCode = code.trim() || FALLBACK;
-        resetMountSurface();
+        removeStalePreviewScripts();
 
         const source = preprocessPreviewSource(lastPreviewCode);
 
@@ -570,23 +564,22 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
 
         if (gen !== runGen) return;
 
-        globalThis.__previewActiveGen = gen;
         removeStalePreviewScripts();
+        resetMountSurface();
 
         const mod = document.createElement("script");
         mod.type = "module";
         mod.id = "preview-compiled-" + gen;
         mod.textContent = wrapCompiledModule(userJs, gen);
         document.body.appendChild(mod);
-        try {
-          parent.postMessage({ type: ${JSON.stringify(PREVIEW_ISSUE_MESSAGE_TYPE)}, ok: true }, "*");
-        } catch (_) {}
       }
 
       window.addEventListener("message", (event) => {
         const data = event.data;
         if (!data || data.type !== MSG) return;
         if (typeof data.code !== "string") return;
+        const trimmed = data.code.trim();
+        if (trimmed === lastPreviewCode.trim() && runGen > 0) return;
         void runUserCode(data.code);
       });
     </script>
