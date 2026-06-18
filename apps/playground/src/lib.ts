@@ -172,7 +172,6 @@ const DEFAULT_PREVIEW_TAILWIND_STYLE = `
 body {
   background: var(--color-areia-background, white);
   color: var(--color-areia-text-default);
-  padding: 1rem;
 }
 `.trim();
 
@@ -219,6 +218,7 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
       }
       #root {
         min-height: 100vh;
+        padding: 1rem;
         background: inherit;
       }
     </style>
