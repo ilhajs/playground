@@ -1,4 +1,5 @@
 import type { TwoslashEditorOptions } from "shedit";
+import { PREVIEW_IMPORT_MAP, PREVIEW_TRANSFORM_URL } from "./preview-cdn.ts";
 
 // ─── URL / settings ───────────────────────────────────────────────────────────
 
@@ -200,54 +201,8 @@ function escapeTailwindCss(css: string): string {
   return css.replace(/<\/style/gi, "<\\/style");
 }
 
-const ESM_ORIGIN = "https://esm.sh";
-
-const PREVIEW_ILHA_VER = "0.8.0";
-const PREVIEW_SONNER_VER = "2.0.7";
-
-function previewEsmEntry(
-  pkg: string,
-  opts?: { version?: string; deps?: string; subpath?: string },
-): string {
-  const ver = opts?.version;
-  const name = ver ? `${pkg}@${ver}` : pkg;
-  const path = opts?.subpath ? `${name}/${opts.subpath}` : name;
-  const q = ["standalone", "target=es2022", opts?.deps ? `deps=${opts.deps}` : ""]
-    .filter(Boolean)
-    .join("&");
-  return `${ESM_ORIGIN}/${path}?${q}`;
-}
-
-/** Same URL areia's bundle imports — required for Areia Toaster + `toast` from "sonner". */
-const PREVIEW_SONNER_URL = `${ESM_ORIGIN}/sonner@${PREVIEW_SONNER_VER}/es2022/sonner.mjs`;
-
-const PREVIEW_IMPORT_MAP = {
-  ilha: previewEsmEntry("ilha", { version: PREVIEW_ILHA_VER }),
-  areia: previewEsmEntry("areia", {
-    deps: `ilha@${PREVIEW_ILHA_VER},sonner@${PREVIEW_SONNER_VER}`,
-  }),
-  sonner: PREVIEW_SONNER_URL,
-  quando: previewEsmEntry("quando"),
-  "ilha/jsx-runtime": previewEsmEntry("ilha", {
-    version: PREVIEW_ILHA_VER,
-    subpath: "jsx-runtime",
-  }),
-  "ilha/jsx-dev-runtime": previewEsmEntry("ilha", {
-    version: PREVIEW_ILHA_VER,
-    subpath: "jsx-dev-runtime",
-  }),
-  "react/jsx-runtime": previewEsmEntry("ilha", {
-    version: PREVIEW_ILHA_VER,
-    subpath: "jsx-runtime",
-  }),
-  "react/jsx-dev-runtime": previewEsmEntry("ilha", {
-    version: PREVIEW_ILHA_VER,
-    subpath: "jsx-dev-runtime",
-  }),
-} as const;
-
 export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
-  const transformUrl = `${ESM_ORIGIN}/transform`;
+  const transformUrl = PREVIEW_TRANSFORM_URL;
   const importMapJson = JSON.stringify({ imports: PREVIEW_IMPORT_MAP }, null, 2);
   const tailwindBlock = escapeTailwindCss(buildPreviewTailwindCss(tailwindThemeCss));
   const darkClass = systemPrefersDark() ? ` class="dark"` : "";
