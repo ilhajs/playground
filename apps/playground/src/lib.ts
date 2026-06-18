@@ -259,6 +259,7 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
           "ilha": "https://esm.sh/ilha",
           "areia": "https://esm.sh/areia?deps=ilha",
           "sonner": "https://esm.sh/sonner",
+          "quando": "https://esm.sh/quando",
           "ilha/jsx-runtime": "https://esm.sh/ilha/jsx-runtime",
           "ilha/jsx-dev-runtime": "https://esm.sh/ilha/jsx-dev-runtime",
           "react/jsx-runtime": "https://esm.sh/ilha/jsx-runtime",
