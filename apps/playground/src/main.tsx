@@ -53,6 +53,7 @@ const App = ilha
   body {
     margin: 0;
     font-family: "Geist Variable", sans-serif;
+    overflow: hidden;
   }
   [data-ilha-slot] {
     display: contents;
@@ -60,8 +61,10 @@ const App = ilha
   .layout {
     --color-areia-background: var(--color-white, #fff);
     --color-areia-border: oklch(93.5% 0 0);
-    min-height: 100vh;
+    box-sizing: border-box;
+    height: 100dvh;
     width: 100%;
+    overflow: hidden;
     display: flex;
   }
   @media (prefers-color-scheme: dark) {
@@ -76,28 +79,35 @@ const App = ilha
   .layout--vertical {
     flex-direction: column;
   }
-  .layout--horizontal .editor {
+  .layout--horizontal .editor-pane {
     border-right: 1px solid var(--color-areia-border);
   }
-  .layout--vertical .editor {
+  .layout--vertical .editor-pane {
     border-bottom: 1px solid var(--color-areia-border);
   }
-  .preview {
-    flex: 1;
-    border: none;
-    width: 100%;
-    min-height: 0;
-    background: var(--color-areia-background);
-  }
-  .editor {
-    flex: 1;
+  .editor-pane,
+  .preview-pane {
+    flex: 1 1 0;
     min-width: 0;
     min-height: 0;
+    overflow: hidden;
     display: flex;
     flex-direction: column;
   }
-  .layout--preview-only .preview {
+  .layout--vertical .editor-pane,
+  .layout--vertical .preview-pane {
+    flex-basis: 50%;
+  }
+  .editor-pane .shedit {
     flex: 1 1 auto;
+    min-height: 0;
+  }
+  .preview-pane .preview {
+    flex: 1 1 auto;
+    width: 100%;
+    min-height: 0;
+    border: none;
+    background: var(--color-areia-background);
   }
   .playground-bar {
     position: fixed;
@@ -201,7 +211,7 @@ const App = ilha
 
     const wireEditorOnChange = (): void => {
       document
-        .querySelector<HTMLElement & { shedit?: ShikiEditorHandle }>(".editor .shedit")
+        .querySelector<HTMLElement & { shedit?: ShikiEditorHandle }>(".editor-pane .shedit")
         ?.shedit?.setOnChange((v) => {
           state.source(v);
           scheduleCodeSearchParamSync(v, URL_SYNC_DEBOUNCE_MS);
@@ -275,7 +285,7 @@ const App = ilha
       <>
         <div class={`layout ${layoutClass}`}>
           {showEditor ? (
-            <div class="editor">
+            <div class="editor-pane">
               <Editor
                 shiki={shiki}
                 lang="tsx"
@@ -288,11 +298,13 @@ const App = ilha
               />
             </div>
           ) : null}
-          <iframe
-            class="preview"
-            title="Ilha preview"
-            sandbox="allow-scripts allow-forms allow-modals allow-popups"
-          />
+          <div class="preview-pane">
+            <iframe
+              class="preview"
+              title="Ilha preview"
+              sandbox="allow-scripts allow-forms allow-modals allow-popups"
+            />
+          </div>
         </div>
         <div class="playground-bar">
           <a
