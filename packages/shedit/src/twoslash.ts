@@ -2,6 +2,9 @@ import { codeToHtml } from "shiki";
 import type { BundledLanguage, BundledTheme, HighlighterCore, ShikiTransformer } from "shiki";
 import { createTransformerFactory, rendererRich } from "@shikijs/twoslash/core";
 import { createTwoslashFromCDN, type TwoslashCdnReturn } from "twoslash-cdn";
+import { createReliableFetcher } from "./cdn-fetch.ts";
+
+const twoslashCdnFetch = createReliableFetcher({ maxConcurrent: 3 });
 
 export type TwoslashEditorOptions = {
   enabled?: boolean;
@@ -62,6 +65,7 @@ const DEFAULT_COMPILER_OPTIONS: Record<string, unknown> = {
   target: 7,
   lib: ["dom", "es2020"],
   skipLibCheck: true,
+  types: [],
 };
 
 const ESM_TYPESCRIPT_VERSION = "5.7.3";
@@ -204,7 +208,7 @@ function esmCdnFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Resp
   }
 
   const target = rewriteToEsmSh(input);
-  return fetch(target, init).then((res) => {
+  return twoslashCdnFetch(target, init).then((res) => {
     if (res.ok) return res;
     if (libBase?.endsWith(".d.ts")) return stubLibResponse();
     return res;
@@ -243,7 +247,7 @@ async function getTwoslashCdn(
       const mergedCompiler = mergeTwoslashCompilerOptions(compilerOptions);
 
       const twoslash = createTwoslashFromCDN({
-        fetcher: esmCdnFetch as typeof fetch,
+        fetcher: esmCdnFetch as unknown as typeof fetch,
         fsMap,
         compilerOptions: mergedCompiler as never,
         twoSlashOptionsOverrides: {

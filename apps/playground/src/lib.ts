@@ -17,13 +17,15 @@ export const DEFAULT_PLAYGROUND_CODE = `import ilha from "ilha";
 export default ilha.render(() => <p>Hello, World!</p>)
 `;
 
-/** Areia Sonner shell — mounted once into #preview-toaster (see areia.ilha.build/components/sonner). */
 export const PREVIEW_TOASTER_BOOTSTRAP = `import ilha from "ilha";
 import { Toaster } from "areia";
 
-export default ilha.render(() => (
-  <Toaster position="bottom-right" closeButton richColors theme="system" />
-));
+const __previewToasterIsland = ilha
+  .input()
+  .render(() => (
+    <Toaster position="bottom-right" closeButton richColors theme="system" />
+  ));
+export default __previewToasterIsland;
 `;
 
 function decodeBase64Utf8(raw: string): string {
@@ -126,9 +128,6 @@ export const PREVIEW_MESSAGE_TYPE = "shedit-playground-preview-code";
 /** Parent → iframe: sync `html.dark` with OS theme without reloading the shell. */
 export const PREVIEW_THEME_MESSAGE_TYPE = "shedit-playground-preview-theme";
 
-/** iframe → parent: preview hit a network/CDN error (parent may show a reload control). */
-export const PREVIEW_ISSUE_MESSAGE_TYPE = "shedit-playground-preview-issue";
-
 export function systemColorSchemeMediaQuery(): MediaQueryList {
   return window.matchMedia("(prefers-color-scheme: dark)");
 }
@@ -201,7 +200,55 @@ function escapeTailwindCss(css: string): string {
   return css.replace(/<\/style/gi, "<\\/style");
 }
 
+const ESM_ORIGIN = "https://esm.sh";
+
+const PREVIEW_ILHA_VER = "0.8.0";
+const PREVIEW_SONNER_VER = "2.0.7";
+
+function previewEsmEntry(
+  pkg: string,
+  opts?: { version?: string; deps?: string; subpath?: string },
+): string {
+  const ver = opts?.version;
+  const name = ver ? `${pkg}@${ver}` : pkg;
+  const path = opts?.subpath ? `${name}/${opts.subpath}` : name;
+  const q = ["standalone", "target=es2022", opts?.deps ? `deps=${opts.deps}` : ""]
+    .filter(Boolean)
+    .join("&");
+  return `${ESM_ORIGIN}/${path}?${q}`;
+}
+
+/** Same URL areia's bundle imports — required for Areia Toaster + `toast` from "sonner". */
+const PREVIEW_SONNER_URL = `${ESM_ORIGIN}/sonner@${PREVIEW_SONNER_VER}/es2022/sonner.mjs`;
+
+const PREVIEW_IMPORT_MAP = {
+  ilha: previewEsmEntry("ilha", { version: PREVIEW_ILHA_VER }),
+  areia: previewEsmEntry("areia", {
+    deps: `ilha@${PREVIEW_ILHA_VER},sonner@${PREVIEW_SONNER_VER}`,
+  }),
+  sonner: PREVIEW_SONNER_URL,
+  quando: previewEsmEntry("quando"),
+  "ilha/jsx-runtime": previewEsmEntry("ilha", {
+    version: PREVIEW_ILHA_VER,
+    subpath: "jsx-runtime",
+  }),
+  "ilha/jsx-dev-runtime": previewEsmEntry("ilha", {
+    version: PREVIEW_ILHA_VER,
+    subpath: "jsx-dev-runtime",
+  }),
+  "react/jsx-runtime": previewEsmEntry("ilha", {
+    version: PREVIEW_ILHA_VER,
+    subpath: "jsx-runtime",
+  }),
+  "react/jsx-dev-runtime": previewEsmEntry("ilha", {
+    version: PREVIEW_ILHA_VER,
+    subpath: "jsx-dev-runtime",
+  }),
+} as const;
+
 export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
+  const transformUrl = `${ESM_ORIGIN}/transform`;
+  const importMapJson = JSON.stringify({ imports: PREVIEW_IMPORT_MAP }, null, 2);
   const tailwindBlock = escapeTailwindCss(buildPreviewTailwindCss(tailwindThemeCss));
   const darkClass = systemPrefersDark() ? ` class="dark"` : "";
   const previewBgLight = "#ffffff";
@@ -233,6 +280,15 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
         padding: 1rem;
         background: inherit;
       }
+      #preview-toaster {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        pointer-events: none;
+      }
+      #preview-toaster > * {
+        pointer-events: auto;
+      }
     </style>
     <script>
       (function () {
@@ -253,58 +309,22 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
     </script>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <style type="text/tailwindcss">${tailwindBlock}</style>
-    <script type="importmap" id="importmap">
-      {
-        "imports": {
-          "ilha": "https://esm.sh/ilha",
-          "areia": "https://esm.sh/areia?deps=ilha",
-          "sonner": "https://esm.sh/sonner",
-          "quando": "https://esm.sh/quando",
-          "ilha/jsx-runtime": "https://esm.sh/ilha/jsx-runtime",
-          "ilha/jsx-dev-runtime": "https://esm.sh/ilha/jsx-dev-runtime",
-          "react/jsx-runtime": "https://esm.sh/ilha/jsx-runtime",
-          "react/jsx-dev-runtime": "https://esm.sh/ilha/jsx-dev-runtime"
-        }
-      }
-    </script>
+    <script type="importmap" id="importmap">${importMapJson.replace(/</g, "\\u003c")}</script>
     <style>
-      .preview-error-panel {
+      .preview-error {
         margin: 1rem;
-        padding: 1rem 1.25rem;
+        padding: 0.75rem 1rem;
         background: #fef2f2;
         border: 1px solid #fecaca;
-        border-radius: 8px;
+        border-radius: 6px;
         color: #991b1b;
-        font: 13px/1.45 system-ui, sans-serif;
+        font: 13px/1.4 ui-monospace, monospace;
+        white-space: pre-wrap;
       }
-      html.dark .preview-error-panel {
+      html.dark .preview-error {
         background: #450a0a;
         border-color: #7f1d1d;
         color: #fecaca;
-      }
-      .preview-error-panel pre {
-        margin: 0 0 0.75rem;
-        font: 12px/1.4 ui-monospace, monospace;
-        white-space: pre-wrap;
-        word-break: break-word;
-      }
-      .preview-error-panel button {
-        font: inherit;
-        font-weight: 500;
-        padding: 0.4rem 0.85rem;
-        border-radius: 6px;
-        border: 1px solid #fecaca;
-        background: #fff;
-        color: #991b1b;
-        cursor: pointer;
-      }
-      html.dark .preview-error-panel button {
-        background: oklch(17% 0 0);
-        border-color: #7f1d1d;
-        color: #fecaca;
-      }
-      .preview-error-panel button:hover {
-        filter: brightness(0.97);
       }
     </style>
   </head>
@@ -315,9 +335,11 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
       const MSG = ${JSON.stringify(PREVIEW_MESSAGE_TYPE)};
       const FALLBACK = ${JSON.stringify(DEFAULT_PLAYGROUND_CODE)};
       const TOASTER_BOOTSTRAP = ${JSON.stringify(PREVIEW_TOASTER_BOOTSTRAP)};
-      const TRANSFORM_URL = "https://esm.sh/transform";
+      const TRANSFORM_URL = ${JSON.stringify(transformUrl)};
       let runGen = 0;
       let toasterGen = 0;
+      let transformChain = Promise.resolve();
+      let toasterReady = Promise.resolve();
       let lastPreviewCode = FALLBACK;
       globalThis.__previewActiveGen = 0;
       globalThis.__previewLastUnmount = null;
@@ -338,47 +360,14 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
         }
       }
 
-      function isLikelyNetworkError(err) {
-        const msg = String(err && err.message ? err.message : err).toLowerCase();
-        return (
-          msg.includes("failed to fetch") ||
-          msg.includes("networkerror") ||
-          msg.includes("load failed") ||
-          msg.includes("transform failed")
-        );
-      }
-
-      function showError(message, options) {
-        const opts = options || {};
+      function showError(message) {
         resetMountSurface();
         const root = document.getElementById("root");
         if (!root) return;
-        const panel = document.createElement("div");
-        panel.className = "preview-error-panel";
         const pre = document.createElement("pre");
+        pre.className = "preview-error";
         pre.textContent = message;
-        panel.appendChild(pre);
-        const showRetry =
-          opts.retry !== false &&
-          (opts.network || isLikelyNetworkError(message));
-        if (showRetry) {
-          const btn = document.createElement("button");
-          btn.type = "button";
-          btn.textContent = "Reload preview";
-          btn.addEventListener("click", () => {
-            void runUserCode(lastPreviewCode);
-          });
-          panel.appendChild(btn);
-        }
-        root.appendChild(panel);
-        if (showRetry) {
-          try {
-            parent.postMessage(
-              { type: ${JSON.stringify(PREVIEW_ISSUE_MESSAGE_TYPE)}, network: true },
-              "*",
-            );
-          } catch (_) {}
-        }
+        root.appendChild(pre);
       }
 
       function resetMountSurface() {
@@ -404,7 +393,7 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
           s =
             s.trimEnd() +
             "\\nexport default __previewDefaultExport;\\n" +
-            "if (globalThis.__previewActiveGen === __PREVIEW_RUN_GEN) __previewMount(document.querySelector(\\"#root\\"), __previewDefaultExport);\\n";
+            "if (globalThis.__previewActiveGen === __PREVIEW_RUN_GEN) __previewMount(document.getElementById(\\"root\\"), __previewDefaultExport);\\n";
         }
         return s.replace(
           /([\\w$]+)\\.mount\\(\\s*(document\\.querySelector\\([^)]+\\))\\s*\\)/g,
@@ -412,10 +401,13 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
         );
       }
 
+      const JSX_RUNTIME = ${JSON.stringify(PREVIEW_IMPORT_MAP["ilha/jsx-runtime"])};
+      const JSX_DEV_RUNTIME = ${JSON.stringify(PREVIEW_IMPORT_MAP["ilha/jsx-dev-runtime"])};
+
       function normalizeTransformedJs(code) {
         return code
-          .replace(/from\\s+[\"']react\\/jsx-runtime[\"']/g, 'from "https://esm.sh/ilha/jsx-runtime"')
-          .replace(/from\\s+[\"']react\\/jsx-dev-runtime[\"']/g, 'from "https://esm.sh/ilha/jsx-dev-runtime"');
+          .replace(/from\\s+[\"']react\\/jsx-runtime[\"']/g, 'from "' + JSX_RUNTIME + '"')
+          .replace(/from\\s+[\"']react\\/jsx-dev-runtime[\"']/g, 'from "' + JSX_DEV_RUNTIME + '"');
       }
 
       function wrapCompiledModule(userJs, runGenId) {
@@ -449,12 +441,38 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
         ].join("\\n");
       }
 
-      async function transformPreviewSource(source) {
-        const importMap = readImportMap();
-        const res = await fetch(TRANSFORM_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+      async function fetchWithRetry(url, init) {
+        const delays = [300, 900, 2200];
+        const retryStatus = new Set([429, 502, 503, 504]);
+        let lastErr;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            const res = await fetch(url, init);
+            if (res.ok || !retryStatus.has(res.status) || attempt === 2) return res;
+            await res.body?.cancel?.().catch(function () {});
+            lastErr = new Error("HTTP " + res.status);
+          } catch (err) {
+            lastErr = err;
+            const msg = String(err && err.message ? err.message : err).toLowerCase();
+            const net =
+              err instanceof TypeError &&
+              (msg.includes("failed to fetch") ||
+                msg.includes("networkerror") ||
+                msg.includes("load failed"));
+            if (!net || attempt === 2) throw err;
+          }
+          const wait = delays[attempt] + Math.floor(Math.random() * (delays[attempt] * 0.25));
+          await new Promise(function (r) {
+            setTimeout(r, wait);
+          });
+        }
+        throw lastErr || new Error("fetch failed");
+      }
+
+      function transformPreviewSource(source) {
+        const run = async () => {
+          const importMap = readImportMap();
+          const body = JSON.stringify({
             filename: "/preview.tsx",
             lang: "tsx",
             code: source,
@@ -462,13 +480,21 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
             jsxImportSource: "ilha",
             importMap,
             minify: false,
-          }),
-        });
-        const text = await res.text();
-        if (!res.ok) throw new Error("Transform failed (" + res.status + "): " + text.slice(0, 500));
-        const payload = JSON.parse(text);
-        if (payload.error) throw new Error(payload.error.message || JSON.stringify(payload.error));
-        return normalizeTransformedJs(payload.code);
+          });
+          const res = await fetchWithRetry(TRANSFORM_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body,
+          });
+          const text = await res.text();
+          if (!res.ok) throw new Error("Transform failed (" + res.status + "): " + text.slice(0, 500));
+          const payload = JSON.parse(text);
+          if (payload.error) throw new Error(payload.error.message || JSON.stringify(payload.error));
+          return normalizeTransformedJs(payload.code);
+        };
+        const next = transformChain.then(run, run);
+        transformChain = next.catch(() => {});
+        return next;
       }
 
       function unmountPreviewToaster() {
@@ -484,63 +510,60 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
         globalThis.__previewToasterMounted = false;
       }
 
+      function preprocessToasterBootstrap(source) {
+        let s = source.trim();
+        s = s.replace(/export\\s+default\\s+/, "const __previewDefaultExport = ");
+        return (
+          s.trimEnd() +
+          "\\nexport default __previewDefaultExport;\\n" +
+          "__previewMount(document.getElementById(\\"preview-toaster\\"), __previewDefaultExport);\\n"
+        );
+      }
+
       async function mountPreviewToaster() {
         const host = document.getElementById("preview-toaster");
         if (!host) return;
         const gen = ++toasterGen;
         unmountPreviewToaster();
         try {
-          const source = preprocessPreviewSource(TOASTER_BOOTSTRAP);
+          const source = preprocessToasterBootstrap(TOASTER_BOOTSTRAP);
           const js = await transformPreviewSource(source);
           if (gen !== toasterGen) return;
           const mod = document.createElement("script");
           mod.type = "module";
           mod.id = "preview-toaster-compiled-" + gen;
-          mod.textContent =
-            wrapCompiledModule(js, gen) +
-            "\\nif (globalThis.__previewToasterGen === " +
-            gen +
-            ") __previewMount(document.getElementById(\\"preview-toaster\\"), __previewDefaultExport);";
-          globalThis.__previewToasterGen = gen;
+          mod.textContent = wrapCompiledModule(js, gen);
           document.body.appendChild(mod);
           globalThis.__previewToasterMounted = true;
         } catch (err) {
+          globalThis.__previewToasterMounted = false;
           console.warn("[playground preview] Toaster bootstrap failed:", err);
         }
       }
 
-      void mountPreviewToaster();
+      toasterReady = mountPreviewToaster();
 
       window.addEventListener("error", (event) => {
-        const fromUserPreview = event.filename?.includes("preview-compiled");
-        const fromToaster = event.filename?.includes("preview-toaster");
-        if (!fromUserPreview && !fromToaster && event.filename !== "") return;
-        if (fromToaster) {
-          console.warn("[playground preview] toaster error", event.message);
-          return;
-        }
+        if (!event.filename?.includes("preview-compiled") && event.filename !== "") return;
         const msg = String(event.message || "");
         if (/already mounted/i.test(msg)) {
-          showError(
-            "Preview mount conflict (stale run). Click Reload preview to try again.",
-            { network: true },
-          );
+          showError("Preview mount conflict. Use the bar refresh button.");
           return;
         }
-        showError(
-          (event.error && event.error.stack) ||
-            event.message ||
-            "Preview script error",
-        );
+        showError(event.error?.stack || event.message || "Preview script error");
       });
       window.addEventListener("unhandledrejection", (event) => {
-        const reason = event.reason;
-        const text = reason && reason.stack ? String(reason.stack) : String(reason ?? "");
+        const text = event.reason?.stack ? String(event.reason.stack) : String(event.reason ?? "");
         if (!text || /preview-toaster/i.test(text)) return;
-        showError(text || "Unhandled promise rejection");
+        showError(text);
       });
 
       async function runUserCode(code) {
+        await toasterReady;
+        if (!globalThis.__previewToasterMounted) {
+          toasterReady = mountPreviewToaster();
+          await toasterReady;
+        }
         const gen = ++runGen;
         globalThis.__previewActiveGen = gen;
         lastPreviewCode = code.trim() || FALLBACK;
@@ -558,7 +581,6 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
             msg.includes("Transform failed") || msg.includes("fetch")
               ? "Preview could not reach esm.sh (transform or CDN).\\n\\n" + msg
               : msg,
-            { network: isLikelyNetworkError(err) },
           );
           return;
         }

@@ -21,6 +21,8 @@ import {
   toggleLineComments,
 } from "./lib.ts";
 
+export { createReliableFetcher, getReliableCdnFetch } from "./cdn-fetch.ts";
+export type { ReliableFetchOptions } from "./cdn-fetch.ts";
 export {
   codeToHighlightHtml,
   loadBundledLanguage,

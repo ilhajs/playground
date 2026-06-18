@@ -14,7 +14,6 @@ import {
   playgroundTwoslashConfig,
   postPreviewCode,
   postPreviewTheme,
-  PREVIEW_ISSUE_MESSAGE_TYPE,
   PREVIEW_MESSAGE_TYPE,
   systemColorSchemeMediaQuery,
   systemPrefersDark,
@@ -89,27 +88,6 @@ const App = ilha
     width: 100%;
     min-height: 0;
     background: var(--color-areia-background);
-  }
-  .preview-reload {
-    position: absolute;
-    left: 0.5rem;
-    bottom: 2.75rem;
-    z-index: 15;
-    font: 12px/1 system-ui, sans-serif;
-    font-weight: 500;
-    padding: 0.35rem 0.65rem;
-    border-radius: 6px;
-    border: 1px solid var(--color-areia-border);
-    background: var(--color-areia-background);
-    color: inherit;
-    cursor: pointer;
-    box-shadow: 0 1px 3px oklch(0% 0 0 / 0.12);
-  }
-  .preview-reload[hidden] {
-    display: none !important;
-  }
-  .layout {
-    position: relative;
   }
   .editor {
     flex: 1;
@@ -232,22 +210,6 @@ const App = ilha
     wireEditorOnChange();
     queueMicrotask(wireEditorOnChange);
 
-    const previewReloadBtn = document.querySelector<HTMLButtonElement>(
-      "[data-action=preview-reload]",
-    );
-    const onPreviewIssue = (event: MessageEvent) => {
-      if (event.source !== iframe?.contentWindow) return;
-      const data = event.data;
-      if (!data || data.type !== PREVIEW_ISSUE_MESSAGE_TYPE) return;
-      if (data.ok) {
-        previewReloadBtn?.setAttribute("hidden", "");
-      } else if (data.network) {
-        previewReloadBtn?.removeAttribute("hidden");
-      }
-    };
-    window.addEventListener("message", onPreviewIssue);
-    cleanups.push(() => window.removeEventListener("message", onPreviewIssue));
-
     if (initialSettings.mode === "preview") {
       const onParentMessage = (event: MessageEvent) => {
         const data = event.data;
@@ -291,14 +253,18 @@ const App = ilha
   .on("[data-action=open-external]@click", () => {
     window.open(location.href, "_blank", "noopener,noreferrer");
   })
-  .on("[data-action=preview-reload]@click", ({ state }) => {
+  .on("[data-action=preview-refresh]@click", ({ state }) => {
     const iframe = document.querySelector<HTMLIFrameElement>("iframe.preview");
     if (!iframe) return;
     lastPostedPreview = "";
-    schedulePreviewPost(iframe, state.source());
-    document
-      .querySelector<HTMLButtonElement>("[data-action=preview-reload]")
-      ?.setAttribute("hidden", "");
+    const { style } = state.settings();
+    const onLoad = () => {
+      schedulePreviewPost(iframe, state.source());
+      postPreviewTheme(iframe, systemPrefersDark());
+      iframe.removeEventListener("load", onLoad);
+    };
+    iframe.addEventListener("load", onLoad);
+    iframe.srcdoc = buildPreviewShellSrcdoc(style);
   })
   .render(({ state }) => {
     const { mode, layout } = state.settings();
@@ -327,15 +293,6 @@ const App = ilha
             title="Ilha preview"
             sandbox="allow-scripts allow-forms allow-modals allow-popups"
           />
-          <button
-            type="button"
-            class="preview-reload"
-            hidden
-            data-action="preview-reload"
-            title="Retry esm.sh transform and preview"
-          >
-            Reload preview
-          </button>
         </div>
         <div class="playground-bar">
           <a
@@ -370,6 +327,15 @@ const App = ilha
               <img src="/rows-2.svg" alt="" width="18" height="18" />
             </button>
           ) : null}
+          <button
+            type="button"
+            class="playground-bar__btn"
+            data-action="preview-refresh"
+            aria-label="Reload preview iframe"
+            title="Reload preview"
+          >
+            <img src="/refresh.svg" alt="" width="18" height="18" />
+          </button>
           <button
             type="button"
             class="playground-bar__btn"

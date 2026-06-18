@@ -1,7 +1,6 @@
 import path from "node:path";
 import type { Plugin } from "vite";
 import { defineConfig } from "vite";
-
 const FRAME_ANCESTORS = "frame-ancestors *";
 
 function allowFraming(): Plugin {
