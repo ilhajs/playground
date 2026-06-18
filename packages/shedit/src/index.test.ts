@@ -45,15 +45,14 @@ describe("indentLineBlock", () => {
     expect(end).toBe(2);
   });
 
-  test("skips whitespace-only lines in multi-line selection", () => {
+  test("indents empty and whitespace-only lines in selection", () => {
     const src = "a\n   \nb";
-    const line0End = 1;
     const line2Start = src.indexOf("b");
     const { value } = indentLineBlock(src, 0, line2Start + 1, tab);
-    expect(value).toBe("  a\n   \n  b");
+    expect(value).toBe("  a\n     \n  b");
   });
 
-  test("indents all content lines in block selection", () => {
+  test("indents all lines in block selection", () => {
     const src = "one\ntwo";
     const { value } = indentLineBlock(src, 0, src.length, tab);
     expect(value).toBe("  one\n  two");

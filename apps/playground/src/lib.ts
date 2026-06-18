@@ -17,6 +17,15 @@ export const DEFAULT_PLAYGROUND_CODE = `import ilha from "ilha";
 export default ilha.render(() => <p>Hello, World!</p>)
 `;
 
+/** Areia Sonner shell — mounted once into #preview-toaster (see areia.ilha.build/components/sonner). */
+export const PREVIEW_TOASTER_BOOTSTRAP = `import ilha from "ilha";
+import { Toaster } from "areia";
+
+export default ilha.render(() => (
+  <Toaster position="bottom-right" closeButton richColors theme="system" />
+));
+`;
+
 function decodeBase64Utf8(raw: string): string {
   let b64 = raw.replace(/-/g, "+").replace(/_/g, "/");
   b64 += "=".repeat((4 - (b64.length % 4)) % 4);
@@ -246,6 +255,7 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
         "imports": {
           "ilha": "https://esm.sh/ilha",
           "areia": "https://esm.sh/areia?deps=ilha",
+          "sonner": "https://esm.sh/sonner",
           "ilha/jsx-runtime": "https://esm.sh/ilha/jsx-runtime",
           "ilha/jsx-dev-runtime": "https://esm.sh/ilha/jsx-dev-runtime",
           "react/jsx-runtime": "https://esm.sh/ilha/jsx-runtime",
@@ -273,12 +283,15 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
   </head>
   <body>
     <div id="root"></div>
+    <div id="preview-toaster"></div>
     <script type="module">
       const MSG = ${JSON.stringify(PREVIEW_MESSAGE_TYPE)};
       const FALLBACK = ${JSON.stringify(DEFAULT_PLAYGROUND_CODE)};
+      const TOASTER_BOOTSTRAP = ${JSON.stringify(PREVIEW_TOASTER_BOOTSTRAP)};
       const TRANSFORM_URL = "https://esm.sh/transform";
       let runGen = 0;
       globalThis.__previewLastUnmount = null;
+      globalThis.__previewToasterMounted = false;
 
       function readImportMap() {
         const el = document.getElementById("importmap");
@@ -353,6 +366,50 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
         ].join("\\n");
       }
 
+      async function transformPreviewSource(source) {
+        const importMap = readImportMap();
+        const res = await fetch(TRANSFORM_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            filename: "/preview.tsx",
+            lang: "tsx",
+            code: source,
+            target: "es2022",
+            jsxImportSource: "ilha",
+            importMap,
+            minify: false,
+          }),
+        });
+        const text = await res.text();
+        if (!res.ok) throw new Error("Transform failed (" + res.status + "): " + text.slice(0, 500));
+        const payload = JSON.parse(text);
+        if (payload.error) throw new Error(payload.error.message || JSON.stringify(payload.error));
+        return normalizeTransformedJs(payload.code);
+      }
+
+      async function mountPreviewToaster() {
+        if (globalThis.__previewToasterMounted) return;
+        const host = document.getElementById("preview-toaster");
+        if (!host) return;
+        try {
+          const source = preprocessPreviewSource(TOASTER_BOOTSTRAP);
+          const js = await transformPreviewSource(source);
+          const mod = document.createElement("script");
+          mod.type = "module";
+          mod.id = "preview-toaster-compiled";
+          mod.textContent =
+            wrapCompiledModule(js) +
+            "\\n__previewMount(document.getElementById(\\"preview-toaster\\"), __previewDefaultExport);";
+          document.body.appendChild(mod);
+          globalThis.__previewToasterMounted = true;
+        } catch (err) {
+          console.warn("[playground preview] Toaster bootstrap failed:", err);
+        }
+      }
+
+      void mountPreviewToaster();
+
       window.addEventListener("error", (event) => {
         if (event.filename === "" || event.filename?.includes("preview-compiled")) {
           showError(
@@ -374,36 +431,10 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
       async function runUserCode(code) {
         const gen = ++runGen;
         const source = preprocessPreviewSource(code.trim() || FALLBACK);
-        const importMap = readImportMap();
 
-        let payload;
+        let userJs;
         try {
-          const res = await fetch(TRANSFORM_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              filename: "/preview.tsx",
-              lang: "tsx",
-              code: source,
-              target: "es2022",
-              jsxImportSource: "ilha",
-              importMap,
-              minify: false,
-            }),
-          });
-          const text = await res.text();
-          if (!res.ok) {
-            if (gen !== runGen) return;
-            showError("Transform failed (" + res.status + "):\\n" + text.slice(0, 2000));
-            return;
-          }
-          try {
-            payload = JSON.parse(text);
-          } catch {
-            if (gen !== runGen) return;
-            showError("Transform returned non-JSON:\\n" + text.slice(0, 2000));
-            return;
-          }
+          userJs = await transformPreviewSource(source);
         } catch (err) {
           if (gen !== runGen) return;
           showError(String(err));
@@ -412,17 +443,12 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
 
         if (gen !== runGen) return;
 
-        if (payload.error) {
-          showError(payload.error.message || JSON.stringify(payload.error));
-          return;
-        }
-
         resetMountSurface();
 
         const mod = document.createElement("script");
         mod.type = "module";
         mod.id = "preview-compiled";
-        mod.textContent = wrapCompiledModule(normalizeTransformedJs(payload.code));
+        mod.textContent = wrapCompiledModule(userJs);
         document.body.appendChild(mod);
       }
 

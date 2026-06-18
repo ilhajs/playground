@@ -65,13 +65,8 @@ export function indentLineBlock(
 
   const addedPerLine: number[] = [];
   for (let i = firstLine; i <= lastLine && i < lineCount; i++) {
-    const line = lines[i]!;
-    if (lineHasContent(line)) {
-      lines[i] = tab + line;
-      addedPerLine.push(tabSize);
-    } else {
-      addedPerLine.push(0);
-    }
+    lines[i] = tab + lines[i]!;
+    addedPerLine.push(tabSize);
   }
 
   const next = lines.join("\n");
