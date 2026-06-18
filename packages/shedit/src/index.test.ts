@@ -14,7 +14,11 @@ import {
   splitDocumentValue,
   toggleLineComments,
 } from "./lib.ts";
-import { normalizeEditorDocument, stripTwoslashAnnotationLines } from "./twoslash.ts";
+import {
+  normalizeEditorDocument,
+  stripTwoslashAnnotationLines,
+  twoslashFailureIsNetwork,
+} from "./twoslash.ts";
 
 describe("splitDocumentValue", () => {
   test("empty string is one empty line", () => {
@@ -229,6 +233,13 @@ describe("isTypingUndoBoundary", () => {
     expect(isTypingUndoBoundary(" ")).toBe(true);
     expect(isTypingUndoBoundary(".")).toBe(true);
     expect(isTypingUndoBoundary("a")).toBe(false);
+  });
+});
+
+describe("twoslashFailureIsNetwork", () => {
+  test("detects fetch failures", () => {
+    expect(twoslashFailureIsNetwork(new TypeError("Failed to fetch"))).toBe(true);
+    expect(twoslashFailureIsNetwork(new Error("syntax error"))).toBe(false);
   });
 });
 

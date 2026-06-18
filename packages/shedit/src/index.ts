@@ -7,6 +7,7 @@ import {
   mapCursorAfterStripAnnotationLines,
   normalizeEditorDocument,
   renderTwoslashMirrorHtml,
+  twoslashFailureIsNetwork,
   type TwoslashEditorOptions,
 } from "./twoslash.ts";
 import {
@@ -175,6 +176,10 @@ function editorShellMarkup() {
           autocorrect="off"
           autocapitalize="off"
         ></textarea>
+      </div>
+      <div class="shedit__network-banner" hidden>
+        <span class="shedit__network-banner-text"></span>
+        <button type="button" class="shedit__network-banner-retry">Retry types</button>
       </div>
     </div>
   `;
@@ -575,7 +580,25 @@ function attachShikiEditor(host: HTMLElement, options: ShikiEditorInput): ShikiE
   let twoslashTimer = 0;
   let twoslashGen = 0;
 
+  const networkBanner = host.querySelector<HTMLDivElement>(`.${BLOCK}__network-banner`);
+  const networkBannerText = host.querySelector<HTMLSpanElement>(`.${BLOCK}__network-banner-text`);
+  const networkBannerRetry = host.querySelector<HTMLButtonElement>(
+    `.${BLOCK}__network-banner-retry`,
+  );
+
+  function showTwoslashNetworkBanner(): void {
+    if (!networkBanner || !networkBannerText) return;
+    networkBannerText.textContent =
+      "Type hints could not load (CDN/network). Syntax highlighting still works.";
+    networkBanner.hidden = false;
+  }
+
+  function hideTwoslashNetworkBanner(): void {
+    if (networkBanner) networkBanner.hidden = true;
+  }
+
   function disableTwoslashFallback(): void {
+    hideTwoslashNetworkBanner();
     if (!twoslashActive) return;
     twoslashActive = false;
     host.classList.remove(`${BLOCK}--twoslash`);
@@ -729,6 +752,15 @@ function attachShikiEditor(host: HTMLElement, options: ShikiEditorInput): ShikiE
 
   view.gutter.addEventListener("click", onGutterClick, { signal: lifetime.signal });
 
+  networkBannerRetry?.addEventListener(
+    "click",
+    () => {
+      hideTwoslashNetworkBanner();
+      scheduleTwoslashOverlay();
+    },
+    { signal: lifetime.signal },
+  );
+
   const resizeObs = new ResizeObserver(() => scheduleGutterSync());
   resizeObs.observe(view.mirrorHl);
   if (view.mirrorTwoslash) resizeObs.observe(view.mirrorTwoslash);
@@ -749,9 +781,14 @@ function attachShikiEditor(host: HTMLElement, options: ShikiEditorInput): ShikiE
     );
     if (gen !== twoslashGen || lifetime.signal.aborted) return;
     if (!result.ok) {
-      disableTwoslashFallback();
+      if (twoslashFailureIsNetwork(result.error)) {
+        showTwoslashNetworkBanner();
+      } else {
+        disableTwoslashFallback();
+      }
       return;
     }
+    hideTwoslashNetworkBanner();
     applyTwoslashOverlayHtml(host, overlay, result.html);
     overlay.classList.add(`${BLOCK}__mirror-twoslash--ready`);
     twoslashUi?.clearPeek();
@@ -1309,6 +1346,45 @@ const EDITOR_CSS = `
     line-height: var(--shedit-line-height, 22px);
     background: var(--shedit-bg);
     color: var(--shedit-fg);
+  }
+
+  .shedit__network-banner {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.45rem 0.75rem;
+    font: 12px/1.35 system-ui, sans-serif;
+    background: #fff8e6;
+    border-top: 1px solid #fcd34d;
+    color: #92400e;
+  }
+
+  .shedit__network-banner[hidden] {
+    display: none !important;
+  }
+
+  .shedit[data-theme="dark"] .shedit__network-banner {
+    background: #422006;
+    border-top-color: #78350f;
+    color: #fde68a;
+  }
+
+  .shedit__network-banner-retry {
+    flex-shrink: 0;
+    font: inherit;
+    font-weight: 500;
+    padding: 0.25rem 0.6rem;
+    border-radius: 4px;
+    border: 1px solid currentColor;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
   }
 
   .shedit[data-theme="dark"] {

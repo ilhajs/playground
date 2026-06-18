@@ -336,6 +336,16 @@ export function applyTwoslashOverlayHtml(
 
 export type TwoslashRenderResult = { ok: true; html: string } | { ok: false; error: unknown };
 
+export function twoslashFailureIsNetwork(error: unknown): boolean {
+  const msg = String(error instanceof Error ? error.message : error).toLowerCase();
+  return (
+    msg.includes("failed to fetch") ||
+    msg.includes("networkerror") ||
+    msg.includes("load failed") ||
+    msg.includes("network request failed")
+  );
+}
+
 export async function renderTwoslashMirrorHtml(
   _highlighter: HighlighterCore,
   code: string,

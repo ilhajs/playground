@@ -126,6 +126,9 @@ export const PREVIEW_MESSAGE_TYPE = "shedit-playground-preview-code";
 /** Parent → iframe: sync `html.dark` with OS theme without reloading the shell. */
 export const PREVIEW_THEME_MESSAGE_TYPE = "shedit-playground-preview-theme";
 
+/** iframe → parent: preview hit a network/CDN error (parent may show a reload control). */
+export const PREVIEW_ISSUE_MESSAGE_TYPE = "shedit-playground-preview-issue";
+
 export function systemColorSchemeMediaQuery(): MediaQueryList {
   return window.matchMedia("(prefers-color-scheme: dark)");
 }
@@ -264,20 +267,43 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
       }
     </script>
     <style>
-      .preview-error {
-        margin: 0;
-        padding: 0.75rem 1rem;
+      .preview-error-panel {
+        margin: 1rem;
+        padding: 1rem 1.25rem;
         background: #fef2f2;
         border: 1px solid #fecaca;
-        border-radius: 6px;
+        border-radius: 8px;
         color: #991b1b;
-        font: 13px/1.4 ui-monospace, monospace;
-        white-space: pre-wrap;
+        font: 13px/1.45 system-ui, sans-serif;
       }
-      html.dark .preview-error {
+      html.dark .preview-error-panel {
         background: #450a0a;
         border-color: #7f1d1d;
         color: #fecaca;
+      }
+      .preview-error-panel pre {
+        margin: 0 0 0.75rem;
+        font: 12px/1.4 ui-monospace, monospace;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .preview-error-panel button {
+        font: inherit;
+        font-weight: 500;
+        padding: 0.4rem 0.85rem;
+        border-radius: 6px;
+        border: 1px solid #fecaca;
+        background: #fff;
+        color: #991b1b;
+        cursor: pointer;
+      }
+      html.dark .preview-error-panel button {
+        background: oklch(17% 0 0);
+        border-color: #7f1d1d;
+        color: #fecaca;
+      }
+      .preview-error-panel button:hover {
+        filter: brightness(0.97);
       }
     </style>
   </head>
@@ -290,8 +316,16 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
       const TOASTER_BOOTSTRAP = ${JSON.stringify(PREVIEW_TOASTER_BOOTSTRAP)};
       const TRANSFORM_URL = "https://esm.sh/transform";
       let runGen = 0;
+      let toasterGen = 0;
+      let lastPreviewCode = FALLBACK;
+      globalThis.__previewActiveGen = 0;
       globalThis.__previewLastUnmount = null;
+      globalThis.__previewToasterUnmount = null;
       globalThis.__previewToasterMounted = false;
+
+      function removeStalePreviewScripts() {
+        document.querySelectorAll('[id^="preview-compiled"]').forEach((el) => el.remove());
+      }
 
       function readImportMap() {
         const el = document.getElementById("importmap");
@@ -303,24 +337,57 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
         }
       }
 
-      function showError(message) {
+      function isLikelyNetworkError(err) {
+        const msg = String(err && err.message ? err.message : err).toLowerCase();
+        return (
+          msg.includes("failed to fetch") ||
+          msg.includes("networkerror") ||
+          msg.includes("load failed") ||
+          msg.includes("transform failed")
+        );
+      }
+
+      function showError(message, options) {
+        const opts = options || {};
         resetMountSurface();
         const root = document.getElementById("root");
         if (!root) return;
+        const panel = document.createElement("div");
+        panel.className = "preview-error-panel";
         const pre = document.createElement("pre");
-        pre.className = "preview-error";
         pre.textContent = message;
-        root.appendChild(pre);
+        panel.appendChild(pre);
+        const showRetry =
+          opts.retry !== false &&
+          (opts.network || isLikelyNetworkError(message));
+        if (showRetry) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.textContent = "Reload preview";
+          btn.addEventListener("click", () => {
+            void runUserCode(lastPreviewCode);
+          });
+          panel.appendChild(btn);
+        }
+        root.appendChild(panel);
+        if (showRetry) {
+          try {
+            parent.postMessage(
+              { type: ${JSON.stringify(PREVIEW_ISSUE_MESSAGE_TYPE)}, network: true },
+              "*",
+            );
+          } catch (_) {}
+        }
       }
 
       function resetMountSurface() {
+        removeStalePreviewScripts();
         if (typeof globalThis.__previewLastUnmount === "function") {
           try {
             globalThis.__previewLastUnmount();
           } catch (_) {}
           globalThis.__previewLastUnmount = null;
         }
-        document.getElementById("preview-compiled")?.remove();
         const oldRoot = document.getElementById("root");
         if (!oldRoot) return;
         const next = document.createElement("div");
@@ -336,7 +403,7 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
           s =
             s.trimEnd() +
             "\\nexport default __previewDefaultExport;\\n" +
-            "__previewMount(document.querySelector(\\"#root\\"), __previewDefaultExport);\\n";
+            "if (globalThis.__previewActiveGen === __PREVIEW_RUN_GEN) __previewMount(document.querySelector(\\"#root\\"), __previewDefaultExport);\\n";
         }
         return s.replace(
           /([\\w$]+)\\.mount\\(\\s*(document\\.querySelector\\([^)]+\\))\\s*\\)/g,
@@ -350,16 +417,37 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
           .replace(/from\\s+[\"']react\\/jsx-dev-runtime[\"']/g, 'from "https://esm.sh/ilha/jsx-dev-runtime"');
       }
 
-      function wrapCompiledModule(userJs) {
+      function wrapCompiledModule(userJs, runGenId) {
         return [
-          "const __previewMount = (el, island) => {",
-          "  if (typeof globalThis.__previewLastUnmount === \\"function\\") {",
-          "    try { globalThis.__previewLastUnmount(); } catch (_) {}",
-          "    globalThis.__previewLastUnmount = null;",
+          "const __PREVIEW_RUN_GEN = " + runGenId + ";",
+          "const __previewUnmountFor = (key) => {",
+          "  const fn = globalThis[key];",
+          "  if (typeof fn === \\"function\\") {",
+          "    try { fn(); } catch (_) {}",
+          "    globalThis[key] = null;",
           "  }",
-          "  const result = island.mount(el);",
-          "  globalThis.__previewLastUnmount =",
-          "    typeof result?.unmount === \\"function\\" ? result.unmount.bind(result) : null;",
+          "};",
+          "const __previewMount = (el, island) => {",
+          "  if (!el) return null;",
+          "  if (el.id === \\"root\\" && globalThis.__previewActiveGen !== __PREVIEW_RUN_GEN) return null;",
+          "  if (el.id === \\"root\\") __previewUnmountFor(\\"__previewLastUnmount\\");",
+          "  if (el.id === \\"preview-toaster\\") __previewUnmountFor(\\"__previewToasterUnmount\\");",
+          "  if (el.id === \\"root\\") {",
+          "    const fresh = document.createElement(\\"div\\");",
+          "    fresh.id = \\"root\\";",
+          "    el.replaceWith(fresh);",
+          "    el = fresh;",
+          "  }",
+          "  let result;",
+          "  try {",
+          "    result = island.mount(el);",
+          "  } catch (err) {",
+          "    console.error(\\"[playground preview] mount failed\\", err);",
+          "    throw err;",
+          "  }",
+          "  const unmount = typeof result?.unmount === \\"function\\" ? result.unmount.bind(result) : null;",
+          "  if (el.id === \\"root\\") globalThis.__previewLastUnmount = unmount;",
+          "  if (el.id === \\"preview-toaster\\") globalThis.__previewToasterUnmount = unmount;",
           "  return result;",
           "};",
           userJs,
@@ -388,19 +476,37 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
         return normalizeTransformedJs(payload.code);
       }
 
+      function unmountPreviewToaster() {
+        if (typeof globalThis.__previewToasterUnmount === "function") {
+          try {
+            globalThis.__previewToasterUnmount();
+          } catch (_) {}
+          globalThis.__previewToasterUnmount = null;
+        }
+        document
+          .querySelectorAll('[id^="preview-toaster-compiled"]')
+          .forEach((el) => el.remove());
+        globalThis.__previewToasterMounted = false;
+      }
+
       async function mountPreviewToaster() {
-        if (globalThis.__previewToasterMounted) return;
         const host = document.getElementById("preview-toaster");
         if (!host) return;
+        const gen = ++toasterGen;
+        unmountPreviewToaster();
         try {
           const source = preprocessPreviewSource(TOASTER_BOOTSTRAP);
           const js = await transformPreviewSource(source);
+          if (gen !== toasterGen) return;
           const mod = document.createElement("script");
           mod.type = "module";
-          mod.id = "preview-toaster-compiled";
+          mod.id = "preview-toaster-compiled-" + gen;
           mod.textContent =
-            wrapCompiledModule(js) +
-            "\\n__previewMount(document.getElementById(\\"preview-toaster\\"), __previewDefaultExport);";
+            wrapCompiledModule(js, gen) +
+            "\\nif (globalThis.__previewToasterGen === " +
+            gen +
+            ") __previewMount(document.getElementById(\\"preview-toaster\\"), __previewDefaultExport);";
+          globalThis.__previewToasterGen = gen;
           document.body.appendChild(mod);
           globalThis.__previewToasterMounted = true;
         } catch (err) {
@@ -411,13 +517,24 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
       void mountPreviewToaster();
 
       window.addEventListener("error", (event) => {
-        if (event.filename === "" || event.filename?.includes("preview-compiled")) {
+        const fromPreview =
+          event.filename === "" ||
+          event.filename?.includes("preview-compiled") ||
+          event.filename?.includes("preview-toaster");
+        if (!fromPreview) return;
+        const msg = String(event.message || "");
+        if (/already mounted/i.test(msg)) {
           showError(
-            (event.error && event.error.stack) ||
-              event.message ||
-              "Preview script error",
+            "Preview mount conflict (stale run). Click Reload preview to try again.",
+            { network: true },
           );
+          return;
         }
+        showError(
+          (event.error && event.error.stack) ||
+            event.message ||
+            "Preview script error",
+        );
       });
       window.addEventListener("unhandledrejection", (event) => {
         const reason = event.reason;
@@ -430,26 +547,40 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
 
       async function runUserCode(code) {
         const gen = ++runGen;
-        const source = preprocessPreviewSource(code.trim() || FALLBACK);
+        globalThis.__previewActiveGen = 0;
+        lastPreviewCode = code.trim() || FALLBACK;
+        resetMountSurface();
+
+        const source = preprocessPreviewSource(lastPreviewCode);
 
         let userJs;
         try {
           userJs = await transformPreviewSource(source);
         } catch (err) {
           if (gen !== runGen) return;
-          showError(String(err));
+          const msg = String(err && err.message ? err.message : err);
+          showError(
+            msg.includes("Transform failed") || msg.includes("fetch")
+              ? "Preview could not reach esm.sh (transform or CDN).\\n\\n" + msg
+              : msg,
+            { network: isLikelyNetworkError(err) },
+          );
           return;
         }
 
         if (gen !== runGen) return;
 
-        resetMountSurface();
+        globalThis.__previewActiveGen = gen;
+        removeStalePreviewScripts();
 
         const mod = document.createElement("script");
         mod.type = "module";
-        mod.id = "preview-compiled";
-        mod.textContent = wrapCompiledModule(userJs);
+        mod.id = "preview-compiled-" + gen;
+        mod.textContent = wrapCompiledModule(userJs, gen);
         document.body.appendChild(mod);
+        try {
+          parent.postMessage({ type: ${JSON.stringify(PREVIEW_ISSUE_MESSAGE_TYPE)}, ok: true }, "*");
+        } catch (_) {}
       }
 
       window.addEventListener("message", (event) => {

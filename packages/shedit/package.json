@@ -1,7 +1,6 @@
 {
   "name": "shedit",
   "version": "0.1.0",
-  "private": true,
   "description": "Shiki highlighted textarea",
   "homepage": "https://github.com/ilhajs/playground#readme",
   "bugs": {
