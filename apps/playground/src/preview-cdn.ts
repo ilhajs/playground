@@ -16,6 +16,7 @@ export type PreviewStandalonePackage = {
 export const PREVIEW_STANDALONE_PACKAGES: PreviewStandalonePackage[] = [
   { name: "areia", sharedDeps: ["ilha", "sonner"] },
   { name: "quando", sharedDeps: ["ilha"] },
+  { name: "@ilha/store", sharedDeps: ["ilha"] },
 ];
 
 /** Stub used to resolve sonner (and verify areia) peer URLs. */

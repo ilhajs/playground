@@ -28,6 +28,8 @@ describe("buildPreviewImportMapFromPeers", () => {
     expect(map.ilha).toBe(ilhaUrl);
     expect(map.areia).toContain("deps=ilha@0.8.1,sonner");
     expect(map.quando).toContain("deps=ilha@0.8.1");
+    expect(map["@ilha/store"]).toContain("standalone");
+    expect(map["@ilha/store"]).toContain("deps=ilha@0.8.1");
   });
 
   test("jsx runtimes match resolved ilha version", () => {
