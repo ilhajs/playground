@@ -133,11 +133,21 @@ export function systemColorSchemeMediaQuery(): MediaQueryList {
   return window.matchMedia("(prefers-color-scheme: dark)");
 }
 
-/** Inline Areia tokens (Play CDN cannot run `@plugin "areia"`). From imprensa starter preview. */
+/** Inline Areia tokens (Play CDN cannot run `@plugin "areia"`). Match areia plugin :root / .dark semantics. */
 const DEFAULT_PREVIEW_TAILWIND_STYLE = `
+:root {
+  --areia-foreground: oklch(21% 0.006 285.885);
+  --areia-text-inverse: oklch(97% 0 0);
+}
+.dark {
+  --areia-foreground: oklch(97% 0 0);
+  --areia-text-inverse: oklch(21% 0.006 285.885);
+}
 @theme {
   --color-areia-background: var(--color-white, #fff);
-  --color-areia-foreground: oklch(21% 0.006 285.885);
+  --color-areia-foreground: var(--areia-foreground);
+  --color-areia-inverse: var(--areia-text-inverse);
+  --text-color-areia-inverse: var(--areia-text-inverse);
   --color-areia-surface: var(--color-white, #fff);
   --color-areia-surface-muted: oklch(97% 0 0);
   --color-areia-surface-elevated: var(--color-white, #fff);
@@ -163,7 +173,8 @@ const DEFAULT_PREVIEW_TAILWIND_STYLE = `
 }
 .dark {
   --color-areia-background: oklch(10% 0 0);
-  --color-areia-foreground: oklch(97% 0 0);
+  --color-areia-foreground: var(--areia-foreground);
+  --color-areia-inverse: var(--areia-text-inverse);
   --color-areia-surface: oklch(17% 0 0);
   --color-areia-surface-muted: oklch(26.9% 0 0);
   --color-areia-surface-elevated: oklch(20% 0 0);
@@ -287,7 +298,7 @@ export function buildPreviewShellSrcdoc(
     </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root" class="min-h-full bg-areia-background text-areia-default"></div>
     <div id="preview-toaster"></div>
     <script type="module">
       const MSG = ${JSON.stringify(PREVIEW_MESSAGE_TYPE)};
