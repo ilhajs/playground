@@ -21,6 +21,7 @@ import {
   syncCodeSearchParam,
   type PlaygroundSettings,
 } from "./lib.ts";
+import { resetPreviewImportMapCache, resolvePreviewImportMap } from "./preview-cdn.ts";
 
 const PREVIEW_DEBOUNCE_MS = 400;
 const URL_SYNC_DEBOUNCE_MS = 400;
@@ -40,6 +41,8 @@ const shiki = await createHighlighter({
   themes: ["github-light", "github-dark"],
   langs: ["tsx"],
 });
+
+const previewImportMap = await resolvePreviewImportMap();
 
 function schedulePreviewPost(iframe: HTMLIFrameElement, code: string): void {
   if (code === lastPostedPreview) return;
@@ -192,7 +195,7 @@ const App = ilha
 
     if (iframe) {
       const setPreviewShell = () => {
-        iframe.srcdoc = buildPreviewShellSrcdoc(initialSettings.style);
+        iframe.srcdoc = buildPreviewShellSrcdoc(initialSettings.style, previewImportMap);
       };
       setPreviewShell();
       const onIframeLoad = () => {
@@ -263,10 +266,12 @@ const App = ilha
   .on("[data-action=open-external]@click", () => {
     window.open(location.href, "_blank", "noopener,noreferrer");
   })
-  .on("[data-action=preview-refresh]@click", ({ state }) => {
+  .on("[data-action=preview-refresh]@click", async ({ state }) => {
     const iframe = document.querySelector<HTMLIFrameElement>("iframe.preview");
     if (!iframe) return;
     lastPostedPreview = "";
+    resetPreviewImportMapCache();
+    const map = await resolvePreviewImportMap();
     const { style } = state.settings();
     const onLoad = () => {
       schedulePreviewPost(iframe, state.source());
@@ -274,7 +279,7 @@ const App = ilha
       iframe.removeEventListener("load", onLoad);
     };
     iframe.addEventListener("load", onLoad);
-    iframe.srcdoc = buildPreviewShellSrcdoc(style);
+    iframe.srcdoc = buildPreviewShellSrcdoc(style, map);
   })
   .render(({ state }) => {
     const { mode, layout } = state.settings();

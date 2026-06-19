@@ -6,13 +6,14 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "bun test src/"
   },
   "dependencies": {
     "@chakra-ui/css-reset": "^2.3.0",
     "@fontsource-variable/geist": "^5.2.9",
     "@shikijs/twoslash": "^4.2.0",
-    "ilha": "^0.8.0",
+    "ilha": "^0.8.1",
     "shedit": "workspace:*",
     "shiki": "^4.2.0"
   },

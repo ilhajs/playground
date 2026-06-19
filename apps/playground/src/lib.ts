@@ -1,5 +1,5 @@
 import type { TwoslashEditorOptions } from "shedit";
-import { PREVIEW_IMPORT_MAP, PREVIEW_TRANSFORM_URL } from "./preview-cdn.ts";
+import { PREVIEW_TRANSFORM_URL } from "./preview-cdn.ts";
 
 // ─── URL / settings ───────────────────────────────────────────────────────────
 
@@ -201,9 +201,12 @@ function escapeTailwindCss(css: string): string {
   return css.replace(/<\/style/gi, "<\\/style");
 }
 
-export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
+export function buildPreviewShellSrcdoc(
+  tailwindThemeCss = "",
+  importMap: Record<string, string>,
+): string {
   const transformUrl = PREVIEW_TRANSFORM_URL;
-  const importMapJson = JSON.stringify({ imports: PREVIEW_IMPORT_MAP }, null, 2);
+  const importMapJson = JSON.stringify({ imports: importMap }, null, 2);
   const tailwindBlock = escapeTailwindCss(buildPreviewTailwindCss(tailwindThemeCss));
   const darkClass = systemPrefersDark() ? ` class="dark"` : "";
   const previewBgLight = "#ffffff";
@@ -356,13 +359,13 @@ export function buildPreviewShellSrcdoc(tailwindThemeCss = ""): string {
         );
       }
 
-      const JSX_RUNTIME = ${JSON.stringify(PREVIEW_IMPORT_MAP["ilha/jsx-runtime"])};
-      const JSX_DEV_RUNTIME = ${JSON.stringify(PREVIEW_IMPORT_MAP["ilha/jsx-dev-runtime"])};
-
       function normalizeTransformedJs(code) {
+        const imports = readImportMap().imports ?? readImportMap();
+        const jsx = imports["ilha/jsx-runtime"] || imports["react/jsx-runtime"] || "";
+        const jsxDev = imports["ilha/jsx-dev-runtime"] || imports["react/jsx-dev-runtime"] || jsx;
         return code
-          .replace(/from\\s+[\"']react\\/jsx-runtime[\"']/g, 'from "' + JSX_RUNTIME + '"')
-          .replace(/from\\s+[\"']react\\/jsx-dev-runtime[\"']/g, 'from "' + JSX_DEV_RUNTIME + '"');
+          .replace(/from\\s+[\"']react\\/jsx-runtime[\"']/g, 'from "' + jsx + '"')
+          .replace(/from\\s+[\"']react\\/jsx-dev-runtime[\"']/g, 'from "' + jsxDev + '"');
       }
 
       function wrapCompiledModule(userJs, runGenId) {

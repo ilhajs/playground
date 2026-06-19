@@ -1,42 +1,41 @@
 import { describe, expect, test } from "bun:test";
 import {
-  PREVIEW_IMPORT_MAP,
-  PREVIEW_RUNTIME_URLS,
-  PREVIEW_STANDALONE_PACKAGES,
   assertPreviewImportMapConsistent,
-  buildPreviewImportMap,
+  buildPreviewImportMapFromPeers,
+  parseEsmShPeerImports,
 } from "./preview-cdn.ts";
 
-// Re-export helper for tests only (mirror production builder)
-function esmDepsParamForTest(sharedDeps: ("ilha" | "sonner")[]): string {
-  return sharedDeps.map((key) => `${key}@${key === "ilha" ? "0.8.0" : "2.0.7"}`).join(",");
-}
+const AREIA_STUB = `/* esm.sh - areia@0.1.28 */
+import "/ilha@0.8.1/es2022/ilha.mjs";
+import "/sonner@2.0.7/es2022/sonner.mjs";
+import "/tailwindcss@>=4.0.0/plugin?target=es2022";
+export * from "/areia@0.1.28/foo/areia.bundle.mjs";
+`;
 
-describe("preview import map", () => {
-  test("buildPreviewImportMap passes consistency guard", () => {
-    assertPreviewImportMapConsistent(buildPreviewImportMap());
+describe("parseEsmShPeerImports", () => {
+  test("extracts versioned peer URLs", () => {
+    const peers = parseEsmShPeerImports(AREIA_STUB);
+    expect(peers.get("ilha")).toBe("https://esm.sh/ilha@0.8.1/es2022/ilha.mjs");
+    expect(peers.get("sonner")).toBe("https://esm.sh/sonner@2.0.7/es2022/sonner.mjs");
+  });
+});
+
+describe("buildPreviewImportMapFromPeers", () => {
+  test("singleton ilha URL is explicit; standalones pin deps ilha@ver", () => {
+    const ilhaUrl = "https://esm.sh/ilha@0.8.1/es2022/ilha.mjs";
+    const map = buildPreviewImportMapFromPeers(ilhaUrl, parseEsmShPeerImports(AREIA_STUB), "0.8.1");
+    assertPreviewImportMapConsistent(map);
+    expect(map.ilha).toBe(ilhaUrl);
+    expect(map.areia).toContain("deps=ilha@0.8.1,sonner");
+    expect(map.quando).toContain("deps=ilha@0.8.1");
   });
 
-  test("singletons are pinned es2022 .mjs, not standalone", () => {
-    expect(PREVIEW_IMPORT_MAP.ilha).toBe(PREVIEW_RUNTIME_URLS.ilha);
-    expect(PREVIEW_IMPORT_MAP.sonner).toBe(PREVIEW_RUNTIME_URLS.sonner);
-    expect(PREVIEW_IMPORT_MAP.ilha).not.toContain("standalone");
-    expect(PREVIEW_IMPORT_MAP.sonner).not.toContain("standalone");
-  });
-
-  test("each standalone package declares deps matching runtime versions", () => {
-    for (const spec of PREVIEW_STANDALONE_PACKAGES) {
-      const entry = PREVIEW_IMPORT_MAP[spec.name]!;
-      const deps = esmDepsParamForTest(spec.sharedDeps);
-      expect(entry).toContain(`deps=${deps}`);
-    }
-  });
-
-  test("adding a new standalone without sharedDeps in map would fail guard", () => {
-    const bad = {
-      ...buildPreviewImportMap(),
-      areia: "https://esm.sh/areia?standalone&target=es2022",
-    };
-    expect(() => assertPreviewImportMapConsistent(bad)).toThrow(/deps=/);
+  test("jsx runtimes match resolved ilha version", () => {
+    const map = buildPreviewImportMapFromPeers(
+      "https://esm.sh/ilha@0.8.1/es2022/ilha.mjs",
+      parseEsmShPeerImports(AREIA_STUB),
+      "0.8.1",
+    );
+    expect(map["ilha/jsx-runtime"]).toBe("https://esm.sh/ilha@0.8.1/es2022/jsx-runtime.mjs");
   });
 });

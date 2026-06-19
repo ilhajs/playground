@@ -35,6 +35,6 @@ export default defineConfig({
     alias: {
       shedit: path.resolve(__dirname, "../../packages/shedit/src/index.ts"),
     },
-    dedupe: ["typescript"],
+    dedupe: ["typescript", "ilha"],
   },
 });

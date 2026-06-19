@@ -1,119 +1,156 @@
-/**
- * Preview iframe CDN import map.
- *
- * Rule: anything that must be a **singleton** (ilha bind context, sonner toast store)
- * uses a pinned `/es2022/*.mjs` URL — never `?standalone` stubs.
- *
- * `?standalone` packages must list those singletons in `deps=` with the **same versions**
- * so esm.sh resolves peers to the import-map URLs.
- */
+/** Preview iframe import map: one ilha + one sonner via esm.sh (resolved at runtime). */
 
 export const PREVIEW_ESM_ORIGIN = "https://esm.sh";
 export const PREVIEW_ESM_TARGET = "es2022";
+export const PREVIEW_TRANSFORM_URL = `${PREVIEW_ESM_ORIGIN}/transform`;
 
-/** Bump when areia/quando peer graph changes. */
-export const PREVIEW_RUNTIME_VERSIONS = {
-  ilha: "0.8.0",
-  sonner: "2.0.7",
-} as const;
-
-export type PreviewRuntimeKey =
-  | keyof typeof PREVIEW_RUNTIME_VERSIONS
-  | "ilha/jsx-runtime"
-  | "ilha/jsx-dev-runtime";
-
-/** Canonical module URLs — one instance per preview iframe. */
-export const PREVIEW_RUNTIME_URLS: Record<PreviewRuntimeKey, string> = {
-  ilha: `${PREVIEW_ESM_ORIGIN}/ilha@${PREVIEW_RUNTIME_VERSIONS.ilha}/${PREVIEW_ESM_TARGET}/ilha.mjs`,
-  sonner: `${PREVIEW_ESM_ORIGIN}/sonner@${PREVIEW_RUNTIME_VERSIONS.sonner}/${PREVIEW_ESM_TARGET}/sonner.mjs`,
-  "ilha/jsx-runtime": `${PREVIEW_ESM_ORIGIN}/ilha@${PREVIEW_RUNTIME_VERSIONS.ilha}/${PREVIEW_ESM_TARGET}/jsx-runtime.mjs`,
-  "ilha/jsx-dev-runtime": `${PREVIEW_ESM_ORIGIN}/ilha@${PREVIEW_RUNTIME_VERSIONS.ilha}/${PREVIEW_ESM_TARGET}/jsx-dev-runtime.mjs`,
-};
+export const PREVIEW_SHARED_RUNTIME_KEYS = ["ilha", "sonner"] as const;
+export type PreviewSharedRuntimeKey = (typeof PREVIEW_SHARED_RUNTIME_KEYS)[number];
 
 export type PreviewStandalonePackage = {
-  /** Import map key (e.g. `"areia"`). */
   name: string;
-  /** esm package name if different from map key. */
   pkg?: string;
-  /** Import-map keys this bundle must share — each must exist in {@link PREVIEW_RUNTIME_URLS}. */
-  sharedDeps: (keyof typeof PREVIEW_RUNTIME_VERSIONS)[];
+  sharedDeps: PreviewSharedRuntimeKey[];
 };
 
-/** Standalone bundles only — peers must be listed in `sharedDeps`. */
 export const PREVIEW_STANDALONE_PACKAGES: PreviewStandalonePackage[] = [
   { name: "areia", sharedDeps: ["ilha", "sonner"] },
   { name: "quando", sharedDeps: ["ilha"] },
 ];
 
-function esmDepsParam(sharedDeps: PreviewStandalonePackage["sharedDeps"]): string {
-  return sharedDeps.map((key) => `${key}@${PREVIEW_RUNTIME_VERSIONS[key]}`).join(",");
+/** Stub used to resolve sonner (and verify areia) peer URLs. */
+const SONNER_PEER_STUB_PACKAGE = "areia";
+
+const PEER_IMPORT_RE = /import\s+"\/([^"@/]+)@([^/]+)\/([^"]+)"/g;
+const ILHA_VER_RE = /ilha@([0-9]+\.[0-9]+\.[0-9]+)/;
+
+async function resolveIlhaSingletonFromEsm(): Promise<{ version: string; url: string }> {
+  const probe = `${PREVIEW_ESM_ORIGIN}/ilha?target=${PREVIEW_ESM_TARGET}`;
+  const res = await fetch(probe);
+  if (!res.ok) throw new Error(`preview CDN: esm.sh ilha probe → ${res.status}`);
+  const stub = await res.text();
+  const ver = stub.match(ILHA_VER_RE)?.[1];
+  if (!ver) throw new Error("preview CDN: could not parse ilha version from esm.sh");
+  const url = `${PREVIEW_ESM_ORIGIN}/ilha@${ver}/${PREVIEW_ESM_TARGET}/ilha.mjs`;
+  return { version: ver, url };
 }
 
-function standaloneEntry(pkg: string, sharedDeps: PreviewStandalonePackage["sharedDeps"]): string {
-  const q = ["standalone", `target=${PREVIEW_ESM_TARGET}`, `deps=${esmDepsParam(sharedDeps)}`].join(
-    "&",
-  );
+/** Parse `import "/pkg@ver/path"` lines from an esm.sh standalone stub. */
+export function parseEsmShPeerImports(stubSource: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const m of stubSource.matchAll(PEER_IMPORT_RE)) {
+    const pkg = m[1]!;
+    const ver = m[2]!;
+    const rest = m[3]!;
+    out.set(pkg, `${PREVIEW_ESM_ORIGIN}/${pkg}@${ver}/${rest}`);
+  }
+  return out;
+}
+
+function standaloneEntry(
+  pkg: string,
+  sharedDeps: PreviewStandalonePackage["sharedDeps"],
+  ilhaVersion?: string,
+): string {
+  const deps = sharedDeps
+    .map((d) => (d === "ilha" && ilhaVersion ? `ilha@${ilhaVersion}` : d))
+    .join(",");
+  const q = ["standalone", `target=${PREVIEW_ESM_TARGET}`, `deps=${deps}`].join("&");
   return `${PREVIEW_ESM_ORIGIN}/${pkg}?${q}`;
 }
 
-/** Import map sent to esm.sh/transform and injected into the preview iframe. */
-export function buildPreviewImportMap(): Record<string, string> {
-  const imports: Record<string, string> = {
-    ilha: PREVIEW_RUNTIME_URLS.ilha,
-    sonner: PREVIEW_RUNTIME_URLS.sonner,
-    "ilha/jsx-runtime": PREVIEW_RUNTIME_URLS["ilha/jsx-runtime"],
-    "ilha/jsx-dev-runtime": PREVIEW_RUNTIME_URLS["ilha/jsx-dev-runtime"],
-    "react/jsx-runtime": PREVIEW_RUNTIME_URLS["ilha/jsx-runtime"],
-    "react/jsx-dev-runtime": PREVIEW_RUNTIME_URLS["ilha/jsx-dev-runtime"],
+function ilhaJsxUrls(ilhaMainUrl: string): { runtime: string; devRuntime: string } {
+  const match = ilhaMainUrl.match(/\/ilha@([^/]+)\//);
+  const ver = match?.[1] ?? "latest";
+  const base = `${PREVIEW_ESM_ORIGIN}/ilha@${ver}/${PREVIEW_ESM_TARGET}`;
+  return {
+    runtime: `${base}/jsx-runtime.mjs`,
+    devRuntime: `${base}/jsx-dev-runtime.mjs`,
   };
+}
+
+export function buildPreviewImportMapFromPeers(
+  ilhaUrl: string,
+  peerUrls: Map<string, string>,
+  ilhaVersion: string,
+): Record<string, string> {
+  const jsx = ilhaJsxUrls(ilhaUrl);
+  const imports: Record<string, string> = {
+    ilha: ilhaUrl,
+    "ilha/jsx-runtime": jsx.runtime,
+    "ilha/jsx-dev-runtime": jsx.devRuntime,
+    "react/jsx-runtime": jsx.runtime,
+    "react/jsx-dev-runtime": jsx.devRuntime,
+  };
+  const sonner = peerUrls.get("sonner");
+  if (sonner) imports.sonner = sonner;
 
   for (const spec of PREVIEW_STANDALONE_PACKAGES) {
-    const pkg = spec.pkg ?? spec.name;
-    imports[spec.name] = standaloneEntry(pkg, spec.sharedDeps);
+    imports[spec.name] = standaloneEntry(spec.pkg ?? spec.name, spec.sharedDeps, ilhaVersion);
   }
-
   return imports;
 }
 
-/** Dev-time guard: every standalone `sharedDeps` key must use a runtime URL in the map. */
 export function assertPreviewImportMapConsistent(map: Record<string, string>): void {
-  const runtimeKeys = new Set(Object.keys(PREVIEW_RUNTIME_URLS));
-  for (const key of runtimeKeys) {
-    if (map[key] !== PREVIEW_RUNTIME_URLS[key as PreviewRuntimeKey]) {
-      throw new Error(
-        `preview import map: "${key}" must be ${PREVIEW_RUNTIME_URLS[key as PreviewRuntimeKey]}, got ${map[key]}`,
-      );
+  for (const key of PREVIEW_SHARED_RUNTIME_KEYS) {
+    const url = map[key];
+    if (!url) continue;
+    if (url.includes("standalone")) {
+      throw new Error(`preview import map: "${key}" must not use ?standalone`);
+    }
+    if (!/\/[^/]+@[^/]+\//.test(url)) {
+      throw new Error(`preview import map: "${key}" must be a versioned esm.sh .mjs URL`);
     }
   }
 
   for (const spec of PREVIEW_STANDALONE_PACKAGES) {
-    for (const dep of spec.sharedDeps) {
-      if (!map[dep]) {
-        throw new Error(
-          `preview import map: standalone "${spec.name}" needs shared dep "${dep}" in map`,
-        );
-      }
-      if (map[dep].includes("standalone")) {
-        throw new Error(`preview import map: shared dep "${dep}" must not use ?standalone`);
-      }
-    }
     const entry = map[spec.name];
     if (!entry?.includes("standalone")) {
-      throw new Error(`preview import map: "${spec.name}" must be a ?standalone entry`);
+      throw new Error(`preview import map: "${spec.name}" must be ?standalone`);
     }
-    const expectedDeps = esmDepsParam(spec.sharedDeps);
-    if (!entry.includes(`deps=${expectedDeps}`)) {
-      throw new Error(
-        `preview import map: "${spec.name}" deps= must be "${expectedDeps}" (got ${entry})`,
-      );
+    if (!entry.includes("deps=")) {
+      throw new Error(`preview import map: "${spec.name}" must include deps=`);
+    }
+    for (const dep of spec.sharedDeps) {
+      if (!map[dep]) {
+        throw new Error(`preview import map: "${spec.name}" needs "${dep}" in map`);
+      }
+      if (dep === "ilha" && !/deps=[^&]*ilha@/.test(entry)) {
+        throw new Error(`preview import map: "${spec.name}" must pin deps ilha@<version>`);
+      }
+      if (dep !== "ilha" && !entry.includes(dep)) {
+        throw new Error(`preview import map: "${spec.name}" deps must include ${dep}`);
+      }
     }
   }
 }
 
-export const PREVIEW_IMPORT_MAP = (() => {
-  const map = buildPreviewImportMap();
-  assertPreviewImportMapConsistent(map);
-  return map;
-})();
+let resolvedMap: Record<string, string> | null = null;
+let resolvePromise: Promise<Record<string, string>> | null = null;
 
-export const PREVIEW_TRANSFORM_URL = `${PREVIEW_ESM_ORIGIN}/transform`;
+/** Resolve latest-compatible singleton URLs from esm.sh (cached per page load). */
+export async function resolvePreviewImportMap(): Promise<Record<string, string>> {
+  if (resolvedMap) return resolvedMap;
+  if (!resolvePromise) {
+    resolvePromise = (async () => {
+      const { version: ilhaVersion, url: ilhaUrl } = await resolveIlhaSingletonFromEsm();
+      const anchor = PREVIEW_STANDALONE_PACKAGES.find((s) => s.name === SONNER_PEER_STUB_PACKAGE)!;
+      const probeUrl = standaloneEntry(anchor.pkg ?? anchor.name, anchor.sharedDeps, ilhaVersion);
+      const res = await fetch(probeUrl);
+      if (!res.ok) throw new Error(`preview CDN: esm.sh ${probeUrl} → ${res.status}`);
+      const stub = await res.text();
+      const peers = parseEsmShPeerImports(stub);
+      peers.set("ilha", ilhaUrl);
+      const map = buildPreviewImportMapFromPeers(ilhaUrl, peers, ilhaVersion);
+      assertPreviewImportMapConsistent(map);
+      resolvedMap = map;
+      return map;
+    })();
+  }
+  return resolvePromise;
+}
+
+export function resetPreviewImportMapCache(): void {
+  resolvedMap = null;
+  resolvePromise = null;
+}
