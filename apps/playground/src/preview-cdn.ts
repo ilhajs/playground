@@ -7,9 +7,6 @@ export const PREVIEW_TRANSFORM_URL = `${PREVIEW_ESM_ORIGIN}/transform`;
 export const PREVIEW_SHARED_RUNTIME_KEYS = ["ilha", "sonner", "alien-signals"] as const;
 export type PreviewSharedRuntimeKey = (typeof PREVIEW_SHARED_RUNTIME_KEYS)[number];
 
-/** Pin for esm.sh; must match a published @ilha/store compatible with preview ilha. */
-export const PREVIEW_STORE_VERSION = "0.5.0";
-
 export type PreviewStandalonePackage = {
   name: string;
   pkg?: string;
@@ -30,6 +27,7 @@ const SONNER_PEER_STUB_PACKAGE = "areia";
 
 const PEER_IMPORT_RE = /import\s+"\/([^"@/]+)@([^/]+)\/([^"]+)"/g;
 const ILHA_VER_RE = /ilha@([0-9]+\.[0-9]+\.[0-9]+)/;
+const STORE_VER_RE = /@ilha\/store@([0-9]+\.[0-9]+\.[0-9]+)/;
 
 async function resolveIlhaSingletonFromEsm(): Promise<{ version: string; url: string }> {
   const probe = `${PREVIEW_ESM_ORIGIN}/ilha?target=${PREVIEW_ESM_TARGET}`;
@@ -40,6 +38,25 @@ async function resolveIlhaSingletonFromEsm(): Promise<{ version: string; url: st
   if (!ver) throw new Error("preview CDN: could not parse ilha version from esm.sh");
   const url = `${PREVIEW_ESM_ORIGIN}/ilha@${ver}/${PREVIEW_ESM_TARGET}/ilha.mjs`;
   return { version: ver, url };
+}
+
+async function resolveStoreFromEsm(): Promise<{
+  version: string;
+  storeUrl: string;
+  formUrl: string;
+}> {
+  const probe = `${PREVIEW_ESM_ORIGIN}/@ilha/store?target=${PREVIEW_ESM_TARGET}`;
+  const res = await fetch(probe);
+  if (!res.ok) throw new Error(`preview CDN: esm.sh @ilha/store probe → ${res.status}`);
+  const stub = await res.text();
+  const ver = stub.match(STORE_VER_RE)?.[1];
+  if (!ver) throw new Error("preview CDN: could not parse @ilha/store version from esm.sh");
+  const base = `${PREVIEW_ESM_ORIGIN}/@ilha/store@${ver}/${PREVIEW_ESM_TARGET}`;
+  return {
+    version: ver,
+    storeUrl: `${base}/store.mjs`,
+    formUrl: `${base}/form.mjs`,
+  };
 }
 
 /** Parse `import "/pkg@ver/path"` lines from an esm.sh standalone stub. */
@@ -82,15 +99,12 @@ export function alienSignalsUrlFromIlhaBundle(ilhaBundleSource: string): string 
   return `${PREVIEW_ESM_ORIGIN}/alien-signals@${ver}/${PREVIEW_ESM_TARGET}/alien-signals.mjs`;
 }
 
-function storeEntry(): string {
-  return `${PREVIEW_ESM_ORIGIN}/@ilha/store@${PREVIEW_STORE_VERSION}/${PREVIEW_ESM_TARGET}/store.mjs`;
-}
-
 export function buildPreviewImportMapFromPeers(
   ilhaUrl: string,
   peerUrls: Map<string, string>,
   ilhaVersion: string,
   ilhaBundleSource = "",
+  storeUrls?: { storeUrl: string; formUrl: string },
 ): Record<string, string> {
   const jsx = ilhaJsxUrls(ilhaUrl);
   const imports: Record<string, string> = {
@@ -100,8 +114,11 @@ export function buildPreviewImportMapFromPeers(
     "react/jsx-runtime": jsx.runtime,
     "react/jsx-dev-runtime": jsx.devRuntime,
     "alien-signals": alienSignalsUrlFromIlhaBundle(ilhaBundleSource),
-    "@ilha/store": storeEntry(),
   };
+  if (storeUrls) {
+    imports["@ilha/store"] = storeUrls.storeUrl;
+    imports["@ilha/store/form"] = storeUrls.formUrl;
+  }
   const sonner = peerUrls.get("sonner");
   if (sonner) imports.sonner = sonner;
 
@@ -123,11 +140,13 @@ export function assertPreviewImportMapConsistent(map: Record<string, string>): v
     }
   }
 
-  const storeEntryUrl = map["@ilha/store"];
-  if (!storeEntryUrl || storeEntryUrl.includes("standalone")) {
-    throw new Error(
-      'preview import map: "@ilha/store" must be a versioned .mjs URL (not ?standalone)',
-    );
+  for (const storeKey of ["@ilha/store", "@ilha/store/form"] as const) {
+    const storeEntryUrl = map[storeKey];
+    if (!storeEntryUrl || storeEntryUrl.includes("standalone")) {
+      throw new Error(
+        `preview import map: "${storeKey}" must be a versioned .mjs URL (not ?standalone)`,
+      );
+    }
   }
   if (!map["alien-signals"]?.includes("alien-signals@")) {
     throw new Error('preview import map: "alien-signals" must be a versioned esm.sh URL');
@@ -163,7 +182,10 @@ export async function resolvePreviewImportMap(): Promise<Record<string, string>>
   if (resolvedMap) return resolvedMap;
   if (!resolvePromise) {
     resolvePromise = (async () => {
-      const { version: ilhaVersion, url: ilhaUrl } = await resolveIlhaSingletonFromEsm();
+      const [{ version: ilhaVersion, url: ilhaUrl }, store] = await Promise.all([
+        resolveIlhaSingletonFromEsm(),
+        resolveStoreFromEsm(),
+      ]);
       const ilhaRes = await fetch(ilhaUrl);
       if (!ilhaRes.ok) throw new Error(`preview CDN: esm.sh ilha bundle → ${ilhaRes.status}`);
       const ilhaBundleSource = await ilhaRes.text();
@@ -174,7 +196,10 @@ export async function resolvePreviewImportMap(): Promise<Record<string, string>>
       const stub = await res.text();
       const peers = parseEsmShPeerImports(stub);
       peers.set("ilha", ilhaUrl);
-      const map = buildPreviewImportMapFromPeers(ilhaUrl, peers, ilhaVersion, ilhaBundleSource);
+      const map = buildPreviewImportMapFromPeers(ilhaUrl, peers, ilhaVersion, ilhaBundleSource, {
+        storeUrl: store.storeUrl,
+        formUrl: store.formUrl,
+      });
       assertPreviewImportMapConsistent(map);
       resolvedMap = map;
       return map;
