@@ -101,6 +101,19 @@ const App = ilha
   .layout--vertical .preview-pane {
     flex-basis: 50%;
   }
+  @media (max-width: 768px) {
+    .layout--horizontal {
+      flex-direction: column;
+    }
+    .layout--horizontal .editor-pane {
+      border-right: none;
+      border-bottom: 1px solid var(--color-areia-border);
+    }
+    .layout--horizontal .editor-pane,
+    .layout--horizontal .preview-pane {
+      flex-basis: 50%;
+    }
+  }
   .editor-pane .shedit {
     flex: 1 1 auto;
     min-height: 0;
