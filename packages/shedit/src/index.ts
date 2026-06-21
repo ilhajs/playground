@@ -17,6 +17,7 @@ import {
   isTypingUndoBoundary,
   outdentLineBlock,
   shouldAutoPairQuote,
+  shouldSkipOverClosingChar,
   splitDocumentValue,
   toggleLineComments,
 } from "./lib.ts";
@@ -1197,13 +1198,10 @@ function attachShikiEditor(host: HTMLElement, options: ShikiEditorInput): ShikiE
           return;
         }
 
-        if (ch in BRACKET_CLOSE || QUOTE_CHARS.has(ch)) {
-          const at = raw[start];
-          if (at === ch) {
-            e.preventDefault();
-            textarea.setSelectionRange(start + 1, start + 1);
-            return;
-          }
+        if (shouldSkipOverClosingChar(raw, start, ch)) {
+          e.preventDefault();
+          textarea.setSelectionRange(start + 1, start + 1);
+          return;
         }
       }
     }
@@ -1258,6 +1256,7 @@ function attachShikiEditor(host: HTMLElement, options: ShikiEditorInput): ShikiE
 
   function setValue(newValue: string): void {
     const doc = normalizeEditorDocument(newValue, twoslashActive);
+    if (doc === value && view.textarea.value === doc) return;
     view.textarea.value = doc;
     commitEdit(doc);
     undoStack.length = 0;

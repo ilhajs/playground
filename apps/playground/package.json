@@ -13,7 +13,7 @@
     "@chakra-ui/css-reset": "^2.3.0",
     "@fontsource-variable/geist": "^5.2.9",
     "@shikijs/twoslash": "^4.2.0",
-    "ilha": "^0.8.1",
+    "ilha": "^0.8.2",
     "shedit": "workspace:*",
     "shiki": "^4.2.0"
   },

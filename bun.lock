@@ -18,7 +18,7 @@
         "@chakra-ui/css-reset": "^2.3.0",
         "@fontsource-variable/geist": "^5.2.9",
         "@shikijs/twoslash": "^4.2.0",
-        "ilha": "^0.8.1",
+        "ilha": "^0.8.2",
         "shedit": "workspace:*",
         "shiki": "^4.2.0",
       },
@@ -338,7 +338,7 @@
 
     "html-void-elements": ["html-void-elements@3.0.0", "", {}, "sha512-bEqo66MRXsUGxWHV5IP0PUiAWwoEjba4VCzg0LjFJBpchPaTfyfCKTG6bc5F8ucKec3q5y6qOdGyYTSBEvhCrg=="],
 
-    "ilha": ["ilha@0.8.1", "", { "dependencies": { "alien-signals": "3.2.1" } }, "sha512-tZevS61hGliFXC61q5tnmqBBUutO/PU9EdFgKu3UXiG5Vaym0KgPEaLAd1+T0lNF+IvnWJzQZRwpQEIWIqQ1qQ=="],
+    "ilha": ["ilha@0.8.2", "", { "dependencies": { "alien-signals": "3.2.1" } }, "sha512-H467mrDE+tK/VSUnRddbjM790T322ydJtidD0AD+CRywKORe0MpnM1W10JpN8K+0CrUkXZ9K/ed7WtWKRPoNdQ=="],
 
     "import-fresh": ["import-fresh@3.3.1", "", { "dependencies": { "parent-module": "^1.0.0", "resolve-from": "^4.0.0" } }, "sha512-TR3KfrTZTYLPB6jUjfx6MF9WcWrHL9su5TObK4ZkYgBdWKPOFoSoQIdEuTuR82pmtxH2spWG9h6etwfr1pLBqQ=="],
 

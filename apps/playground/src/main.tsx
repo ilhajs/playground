@@ -35,7 +35,31 @@ const app = document.querySelector<HTMLElement>("#app")!;
 const initialSettings = parsePlaygroundSettings(location.search);
 /** Set once from URL before first paint; Editor must not receive reactive `value`. */
 let editorSeed = initialSettings.code || DEFAULT_PLAYGROUND_CODE;
+/** Live document; not in Ilha state so typing does not re-render the app (preserves shedit undo). */
+let liveEditorCode = editorSeed;
 let lastPostedPreview = "";
+let previewDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+
+function getEditorHandle(): ShikiEditorHandle | undefined {
+  return document.querySelector<HTMLElement & { shedit?: ShikiEditorHandle }>(
+    ".editor-pane .shedit",
+  )?.shedit;
+}
+
+function getEditorCode(): string {
+  return getEditorHandle()?.getValue() ?? liveEditorCode;
+}
+
+function schedulePreviewFromEditor(
+  iframe: HTMLIFrameElement,
+  debounceMs = PREVIEW_DEBOUNCE_MS,
+): void {
+  if (previewDebounceTimer !== undefined) clearTimeout(previewDebounceTimer);
+  previewDebounceTimer = window.setTimeout(() => {
+    previewDebounceTimer = undefined;
+    schedulePreviewPost(iframe, getEditorCode());
+  }, debounceMs);
+}
 
 const shiki = await createHighlighter({
   themes: ["github-light", "github-dark"],
@@ -50,9 +74,7 @@ function schedulePreviewPost(iframe: HTMLIFrameElement, code: string): void {
   postPreviewCode(iframe, code);
 }
 
-const App = ilha
-  .state("settings", (): PlaygroundSettings => initialSettings)
-  .state("source", () => editorSeed).css`
+const App = ilha.state("settings", (): PlaygroundSettings => initialSettings).css`
   body {
     margin: 0;
     font-family: "Geist Variable", sans-serif;
@@ -202,7 +224,7 @@ const App = ilha
     opacity: 1;
   }
   `
-  .onMount(({ state }) => {
+  .onMount(() => {
     const iframe = document.querySelector<HTMLIFrameElement>("iframe.preview");
     const cleanups: (() => void)[] = [];
 
@@ -212,7 +234,7 @@ const App = ilha
       };
       setPreviewShell();
       const onIframeLoad = () => {
-        schedulePreviewPost(iframe, state.source());
+        schedulePreviewPost(iframe, getEditorCode());
         postPreviewTheme(iframe, systemPrefersDark());
       };
       iframe.addEventListener("load", onIframeLoad, { once: true });
@@ -229,8 +251,9 @@ const App = ilha
       document
         .querySelector<HTMLElement & { shedit?: ShikiEditorHandle }>(".editor-pane .shedit")
         ?.shedit?.setOnChange((v) => {
-          state.source(v);
+          liveEditorCode = v;
           scheduleCodeSearchParamSync(v, URL_SYNC_DEBOUNCE_MS);
+          if (iframe) schedulePreviewFromEditor(iframe);
         });
     };
     wireEditorOnChange();
@@ -240,7 +263,7 @@ const App = ilha
       const onParentMessage = (event: MessageEvent) => {
         const data = event.data;
         if (!data || data.type !== PREVIEW_MESSAGE_TYPE || typeof data.code !== "string") return;
-        state.source(data.code);
+        liveEditorCode = data.code;
         const el = document.querySelector<HTMLIFrameElement>("iframe.preview");
         if (el) schedulePreviewPost(el, data.code);
       };
@@ -252,28 +275,16 @@ const App = ilha
       for (const fn of cleanups) fn();
     };
   })
-  .effect(({ state }) => {
-    const iframe = document.querySelector<HTMLIFrameElement>("iframe.preview");
-    if (!iframe) return;
-
-    const code = state.source();
-    const timer = window.setTimeout(() => {
-      schedulePreviewPost(iframe, code);
-    }, PREVIEW_DEBOUNCE_MS);
-
-    return () => clearTimeout(timer);
-  })
-
   .on("[data-action=layout-toggle]@click", ({ state }) => {
     const layout = state.settings().layout;
     const next = layout === "horizontal" ? "vertical" : "horizontal";
-    syncCodeSearchParam(state.source());
+    syncCodeSearchParam(getEditorCode());
     navigateWithLayout(next);
   })
   .on("[data-action=mode-toggle]@click", ({ state }) => {
     const mode = state.settings().mode;
     const next = mode === "editor" ? "preview" : "editor";
-    syncCodeSearchParam(state.source());
+    syncCodeSearchParam(getEditorCode());
     navigateWithMode(next);
   })
   .on("[data-action=open-external]@click", () => {
@@ -287,7 +298,7 @@ const App = ilha
     const map = await resolvePreviewImportMap();
     const { style } = state.settings();
     const onLoad = () => {
-      schedulePreviewPost(iframe, state.source());
+      schedulePreviewPost(iframe, getEditorCode());
       postPreviewTheme(iframe, systemPrefersDark());
       iframe.removeEventListener("load", onLoad);
     };

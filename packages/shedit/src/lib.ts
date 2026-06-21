@@ -222,6 +222,15 @@ export function cutWholeLine(
   return { value: next, start: newPos, end: newPos, cutText };
 }
 
+const BRACKET_CLOSE_CHARS = new Set([")", "]", "}"]);
+const QUOTE_CLOSE_CHARS = new Set(['"', "'", "`"]);
+
+/** When caret is before an auto-inserted closing char, typing that char should advance instead of inserting again. */
+export function shouldSkipOverClosingChar(value: string, pos: number, ch: string): boolean {
+  if (!BRACKET_CLOSE_CHARS.has(ch) && !QUOTE_CLOSE_CHARS.has(ch)) return false;
+  return value[pos] === ch;
+}
+
 export function shouldAutoPairQuote(value: string, pos: number): boolean {
   if (value[pos - 1] === "\\") return false;
   const after = value[pos];

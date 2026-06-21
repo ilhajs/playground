@@ -11,6 +11,7 @@ import {
   outdentLineBlock,
   selectionLineRange,
   shouldAutoPairQuote,
+  shouldSkipOverClosingChar,
   splitDocumentValue,
   toggleLineComments,
 } from "./lib.ts";
@@ -195,6 +196,22 @@ describe("shouldAutoPairQuote", () => {
 
   test("disallows when next char is a quote", () => {
     expect(shouldAutoPairQuote('a"', 1)).toBe(false);
+  });
+});
+
+describe("shouldSkipOverClosingChar", () => {
+  test("skips over auto-inserted closing brackets", () => {
+    expect(shouldSkipOverClosingChar("{}", 1, "}")).toBe(true);
+    expect(shouldSkipOverClosingChar("()", 1, ")")).toBe(true);
+    expect(shouldSkipOverClosingChar("[]", 1, "]")).toBe(true);
+  });
+
+  test("does not skip when next char differs", () => {
+    expect(shouldSkipOverClosingChar("{x", 1, "}")).toBe(false);
+  });
+
+  test("skips over auto-inserted quotes", () => {
+    expect(shouldSkipOverClosingChar('""', 1, '"')).toBe(true);
   });
 });
 
