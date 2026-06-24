@@ -19,7 +19,7 @@ export default ilha.render(() => <p>Hello, World!</p>)
 `;
 
 export const PREVIEW_TOASTER_BOOTSTRAP = `import ilha from "ilha";
-import { Toaster } from "areia";
+import { Toaster } from "areia/sonner";
 
 const __previewToasterIsland = ilha
   .input()

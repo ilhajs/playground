@@ -35,12 +35,16 @@ describe("buildPreviewImportMapFromPeers", () => {
     const ilhaUrl = "https://esm.sh/ilha@0.8.1/es2022/ilha.mjs";
     const ilhaSrc = `from"/alien-signals@3.2.1/es2022/alien-signals.mjs"`;
     const storeBase = "https://esm.sh/@ilha/store@0.5.2/es2022";
+    const sonnerUrl = "https://esm.sh/sonner@2.0.7/es2022/sonner.mjs";
+    const areiaSonnerUrl = "https://esm.sh/areia@0.1.28/es2022/sonner.mjs";
     const map = buildPreviewImportMapFromPeers(
       ilhaUrl,
       parseEsmShPeerImports(AREIA_STUB),
       "0.8.1",
       ilhaSrc,
       { storeUrl: `${storeBase}/store.mjs`, formUrl: `${storeBase}/form.mjs` },
+      sonnerUrl,
+      areiaSonnerUrl,
     );
     assertPreviewImportMapConsistent(map);
     expect(map.ilha).toBe(ilhaUrl);
@@ -53,6 +57,9 @@ describe("buildPreviewImportMapFromPeers", () => {
     );
     expect(map["@ilha/store/form"]).not.toContain("standalone");
     expect(map["alien-signals"]).toContain("alien-signals@3.2.1");
+    expect(map.sonner).toBe(sonnerUrl);
+    expect(map.sonner).not.toContain("standalone");
+    expect(map["areia/sonner"]).toBe(areiaSonnerUrl);
   });
 
   test("jsx runtimes match resolved ilha version", () => {
