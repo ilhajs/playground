@@ -13,19 +13,17 @@ export type PlaygroundSettings = {
   style: string;
 };
 
-export const DEFAULT_PLAYGROUND_CODE = `import ilha from "ilha";
+export const DEFAULT_PLAYGROUND_CODE = `import { ilha } from "ilha";
 
-export default ilha.render(() => <p>Hello, World!</p>)
+export default ilha(() => <p>Hello, World!</p>)
 `;
 
-export const PREVIEW_TOASTER_BOOTSTRAP = `import ilha from "ilha";
+export const PREVIEW_TOASTER_BOOTSTRAP = `import { ilha } from "ilha";
 import { Toaster } from "areia/sonner";
 
-const __previewToasterIsland = ilha
-  .input()
-  .render(() => (
-    <Toaster position="bottom-right" closeButton richColors theme="system" />
-  ));
+const __previewToasterIsland = ilha(() => (
+  <Toaster position="bottom-right" closeButton richColors theme="system" />
+));
 export default __previewToasterIsland;
 `;
 

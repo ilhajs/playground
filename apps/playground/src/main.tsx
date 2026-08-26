@@ -4,7 +4,7 @@ import "@fontsource-variable/geist";
 import type { BundledTheme } from "shiki";
 import { createHighlighter } from "shiki/bundle/web";
 import { Editor, type ShikiEditorHandle } from "shedit";
-import ilha from "ilha";
+import { effect, ilha, state } from "ilha";
 import {
   buildPreviewShellSrcdoc,
   DEFAULT_PLAYGROUND_CODE,
@@ -19,7 +19,6 @@ import {
   systemPrefersDark,
   scheduleCodeSearchParamSync,
   syncCodeSearchParam,
-  type PlaygroundSettings,
 } from "./lib.ts";
 import { resetPreviewImportMapCache, resolvePreviewImportMap } from "./preview-cdn.ts";
 
@@ -34,7 +33,7 @@ const app = document.querySelector<HTMLElement>("#app")!;
 
 const initialSettings = parsePlaygroundSettings(location.search);
 /** Set once from URL before first paint; Editor must not receive reactive `value`. */
-let editorSeed = initialSettings.code || DEFAULT_PLAYGROUND_CODE;
+const editorSeed = initialSettings.code || DEFAULT_PLAYGROUND_CODE;
 /** Live document; not in Ilha state so typing does not re-render the app (preserves shedit undo). */
 let liveEditorCode = editorSeed;
 let lastPostedPreview = "";
@@ -74,7 +73,7 @@ function schedulePreviewPost(iframe: HTMLIFrameElement, code: string): void {
   postPreviewCode(iframe, code);
 }
 
-const App = ilha.state("settings", (): PlaygroundSettings => initialSettings).css`
+const PLAYGROUND_CSS = `
   body {
     margin: 0;
     font-family: "Geist Variable", sans-serif;
@@ -223,9 +222,15 @@ const App = ilha.state("settings", (): PlaygroundSettings => initialSettings).cs
   .playground-bar__btn--active img {
     opacity: 1;
   }
-  `
-  .onMount(() => {
-    const iframe = document.querySelector<HTMLIFrameElement>("iframe.preview");
+`;
+
+const App = ilha(function App() {
+  const settings = state(initialSettings);
+
+  systemAppStyles();
+
+  effect.once(({ host }) => {
+    const iframe = host.querySelector<HTMLIFrameElement>("iframe.preview");
     const cleanups: (() => void)[] = [];
 
     if (iframe) {
@@ -274,29 +279,28 @@ const App = ilha.state("settings", (): PlaygroundSettings => initialSettings).cs
     return () => {
       for (const fn of cleanups) fn();
     };
-  })
-  .on("[data-action=layout-toggle]@click", ({ state }) => {
-    const layout = state.settings().layout;
-    const next = layout === "horizontal" ? "vertical" : "horizontal";
+  });
+
+  const onLayoutToggle = () => {
+    const next = settings().layout === "horizontal" ? "vertical" : "horizontal";
     syncCodeSearchParam(getEditorCode());
     navigateWithLayout(next);
-  })
-  .on("[data-action=mode-toggle]@click", ({ state }) => {
-    const mode = state.settings().mode;
-    const next = mode === "editor" ? "preview" : "editor";
+  };
+  const onModeToggle = () => {
+    const next = settings().mode === "editor" ? "preview" : "editor";
     syncCodeSearchParam(getEditorCode());
     navigateWithMode(next);
-  })
-  .on("[data-action=open-external]@click", () => {
+  };
+  const onOpenExternal = () => {
     window.open(location.href, "_blank", "noopener,noreferrer");
-  })
-  .on("[data-action=preview-refresh]@click", async ({ state }) => {
+  };
+  const onPreviewRefresh = async () => {
     const iframe = document.querySelector<HTMLIFrameElement>("iframe.preview");
     if (!iframe) return;
     lastPostedPreview = "";
     resetPreviewImportMapCache();
     const map = await resolvePreviewImportMap();
-    const { style } = state.settings();
+    const { style } = settings();
     const onLoad = () => {
       schedulePreviewPost(iframe, getEditorCode());
       postPreviewTheme(iframe, systemPrefersDark());
@@ -304,91 +308,98 @@ const App = ilha.state("settings", (): PlaygroundSettings => initialSettings).cs
     };
     iframe.addEventListener("load", onLoad);
     iframe.srcdoc = buildPreviewShellSrcdoc(style, map);
-  })
-  .render(({ state }) => {
-    const { mode, layout } = state.settings();
-    const showEditor = mode !== "preview";
-    const layoutClass = mode === "preview" ? "layout--preview-only" : `layout--${layout}`;
+  };
 
-    return (
-      <>
-        <div class={`layout ${layoutClass}`}>
-          {showEditor ? (
-            <div class="editor-pane">
-              <Editor
-                shiki={shiki}
-                lang="tsx"
-                themes={themes}
-                theme="system"
-                value={editorSeed}
-                placeholder="Write Ilha TSX here…"
-                ariaLabel="TSX editor (hover ~1s or hold Ctrl/⌘ for types)"
-                twoslash={playgroundTwoslashConfig}
-              />
-            </div>
-          ) : null}
-          <div class="preview-pane">
-            <iframe
-              class="preview"
-              title="Ilha preview"
-              sandbox="allow-scripts allow-forms allow-modals allow-popups"
+  const { mode, layout } = settings();
+  const showEditor = mode !== "preview";
+  const layoutClass = mode === "preview" ? "layout--preview-only" : `layout--${layout}`;
+
+  return (
+    <>
+      <div class={`layout ${layoutClass}`}>
+        {showEditor ? (
+          <div class="editor-pane">
+            <Editor
+              shiki={shiki}
+              lang="tsx"
+              themes={themes}
+              theme="system"
+              value={editorSeed}
+              placeholder="Write Ilha TSX here…"
+              ariaLabel="TSX editor (hover ~1s or hold Ctrl/⌘ for types)"
+              twoslash={playgroundTwoslashConfig}
             />
           </div>
+        ) : null}
+        <div class="preview-pane">
+          <iframe
+            class="preview"
+            title="Ilha preview"
+            sandbox="allow-scripts allow-forms allow-modals allow-popups"
+          />
         </div>
-        <div class="playground-bar">
-          <a
-            class="playground-bar__link"
-            href="https://ilha.build"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            ilha.build
-          </a>
+      </div>
+      <div class="playground-bar">
+        <a
+          class="playground-bar__link"
+          href="https://ilha.build"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          ilha.build
+        </a>
+        <button
+          type="button"
+          class={`playground-bar__btn${mode === "editor" ? " playground-bar__btn--active" : ""}`}
+          onclick={onModeToggle}
+          aria-label={mode === "editor" ? "Switch to preview only" : "Switch to editor"}
+          title={mode === "editor" ? "Preview only" : "Editor"}
+        >
+          <img src="/code.svg" alt="" width="18" height="18" />
+        </button>
+        {showEditor ? (
           <button
             type="button"
-            class={`playground-bar__btn${mode === "editor" ? " playground-bar__btn--active" : ""}`}
-            data-action="mode-toggle"
-            aria-label={mode === "editor" ? "Switch to preview only" : "Switch to editor"}
-            title={mode === "editor" ? "Preview only" : "Editor"}
+            class={`playground-bar__btn${layout === "vertical" ? " playground-bar__btn--active" : ""}`}
+            onclick={onLayoutToggle}
+            aria-label={
+              layout === "horizontal" ? "Switch to vertical layout" : "Switch to horizontal layout"
+            }
+            title={layout === "horizontal" ? "Vertical layout" : "Horizontal layout"}
           >
-            <img src="/code.svg" alt="" width="18" height="18" />
+            <img src="/rows-2.svg" alt="" width="18" height="18" />
           </button>
-          {showEditor ? (
-            <button
-              type="button"
-              class={`playground-bar__btn${layout === "vertical" ? " playground-bar__btn--active" : ""}`}
-              data-action="layout-toggle"
-              aria-label={
-                layout === "horizontal"
-                  ? "Switch to vertical layout"
-                  : "Switch to horizontal layout"
-              }
-              title={layout === "horizontal" ? "Vertical layout" : "Horizontal layout"}
-            >
-              <img src="/rows-2.svg" alt="" width="18" height="18" />
-            </button>
-          ) : null}
-          <button
-            type="button"
-            class="playground-bar__btn"
-            data-action="preview-refresh"
-            aria-label="Reload preview iframe"
-            title="Reload preview"
-          >
-            <img src="/refresh.svg" alt="" width="18" height="18" />
-          </button>
-          <button
-            type="button"
-            class="playground-bar__btn"
-            data-action="open-external"
-            aria-label="Open current URL in new tab"
-            title="Open in new tab"
-          >
-            <img src="/external-link.svg" alt="" width="18" height="18" />
-          </button>
-        </div>
-      </>
-    );
-  });
+        ) : null}
+        <button
+          type="button"
+          class="playground-bar__btn"
+          onclick={onPreviewRefresh}
+          aria-label="Reload preview iframe"
+          title="Reload preview"
+        >
+          <img src="/refresh.svg" alt="" width="18" height="18" />
+        </button>
+        <button
+          type="button"
+          class="playground-bar__btn"
+          onclick={onOpenExternal}
+          aria-label="Open current URL in new tab"
+          title="Open in new tab"
+        >
+          <img src="/external-link.svg" alt="" width="18" height="18" />
+        </button>
+      </div>
+    </>
+  );
+});
 
 App.mount(app);
+
+function systemAppStyles(): void {
+  const id = "playground-styles";
+  if (document.getElementById(id)) return;
+  const style = document.createElement("style");
+  style.id = id;
+  style.textContent = PLAYGROUND_CSS;
+  document.head.appendChild(style);
+}

@@ -1,4 +1,4 @@
-import ilha, { html } from "ilha";
+import { effect, html, ilha } from "ilha";
 import type { BundledLanguage, BundledTheme, HighlighterCore, ThemedToken } from "shiki";
 import {
   applyTwoslashOverlayHtml,
@@ -389,11 +389,11 @@ function createMirrorHighlightController(
       for (const { lineIndex, text, tokens } of lines) {
         const el = lineTextEl(lineIndex);
         if (el) el.textContent = mirrorLineText(text, lineIndex, n);
-        if (!lastLines[lineIndex]) {
-          lastLines[lineIndex] = { lineIndex, text, tokens };
-        } else {
+        if (lastLines[lineIndex]) {
           lastLines[lineIndex]!.text = text;
           lastLines[lineIndex]!.tokens = tokens;
+        } else {
+          lastLines[lineIndex] = { lineIndex, text, tokens };
         }
       }
       applyHighlights(lastLines);
@@ -516,7 +516,7 @@ function attachShikiEditor(host: HTMLElement, options: ShikiEditorInput): ShikiE
   const useTwoslash = twoslashOpts.active && isTwoslashLanguage(lang);
 
   const layout = resolveLayout(options);
-  let lines: LineRecord[] = [];
+  const lines: LineRecord[] = [];
   let value = normalizeEditorDocument(options.value ?? "", useTwoslash);
   let currentLang = lang;
   let disposed = false;
@@ -525,8 +525,8 @@ function attachShikiEditor(host: HTMLElement, options: ShikiEditorInput): ShikiE
   let activeLine = -1;
   let gutterBuiltForLines = -1;
 
-  let undoStack: EditorHistorySnap[] = [];
-  let redoStack: EditorHistorySnap[] = [];
+  const undoStack: EditorHistorySnap[] = [];
+  const redoStack: EditorHistorySnap[] = [];
   let lastHistoryValue = value;
   let skipHistoryRecord = false;
   let typingBatchSnap: EditorHistorySnap | null = null;
@@ -1177,9 +1177,7 @@ function attachShikiEditor(host: HTMLElement, options: ShikiEditorInput): ShikiE
     if (!mod && !alt && e.key.length === 1) {
       const start = textarea.selectionStart;
       const end = textarea.selectionEnd;
-      if (start !== end) {
-        /* fall through */
-      } else {
+      if (start === end) {
         const raw = textarea.value;
         const ch = e.key;
 
@@ -1203,6 +1201,8 @@ function attachShikiEditor(host: HTMLElement, options: ShikiEditorInput): ShikiE
           textarea.setSelectionRange(start + 1, start + 1);
           return;
         }
+      } else {
+        /* fall through */
       }
     }
 
@@ -1600,10 +1600,19 @@ const EDITOR_CSS = `
   }
 `;
 
-export const Editor = ilha
-  .input<ShikiEditorInput & Record<string, unknown>>()
-  .css(EDITOR_CSS)
-  .onMount(({ host, input }) => {
+let editorStylesInjected = false;
+function injectEditorStyles(): void {
+  if (editorStylesInjected) return;
+  editorStylesInjected = true;
+  const style = document.createElement("style");
+  style.id = "shedit-editor-css";
+  style.textContent = EDITOR_CSS;
+  document.head.appendChild(style);
+}
+
+export const Editor = ilha(function Editor(input: ShikiEditorInput & Record<string, unknown>) {
+  effect.once(({ host }) => {
+    injectEditorStyles();
     const root = host.querySelector<HTMLElement>(`.${BLOCK}`)!;
     const handle = attachShikiEditor(root, input);
     (root as HTMLElement & { shedit?: ShikiEditorHandle }).shedit = handle;
@@ -1611,5 +1620,6 @@ export const Editor = ilha
       handle.dispose();
       delete (root as HTMLElement & { shedit?: ShikiEditorHandle }).shedit;
     };
-  })
-  .render(() => editorShellMarkup());
+  });
+  return editorShellMarkup();
+});
