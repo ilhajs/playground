@@ -1651,6 +1651,7 @@ function EditorComponent(input: Record<string, unknown>): View {
         if (gen !== attachGen || editorRoot !== el) return;
         editorHandle = attachShikiEditor(editorRoot, props);
         editorRoot.shedit = editorHandle;
+        editorRoot.dispatchEvent(new CustomEvent("shedit:ready", { bubbles: true }));
       });
     } else {
       attachGen++;

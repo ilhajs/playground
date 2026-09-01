@@ -1,4 +1,5 @@
 import "@chakra-ui/css-reset";
+import "./app.css";
 import "@shikijs/twoslash/style-rich.css";
 import "@fontsource-variable/geist";
 import type { BundledTheme } from "shiki";
@@ -251,17 +252,26 @@ function layoutRef(host: Element | null): void {
         layoutSetupCleanups.push(() => themeMq.removeEventListener("change", onSystemThemeChange));
       }
 
-      const wireEditorOnChange = (): void => {
-        document
-          .querySelector<HTMLElement & { shedit?: ShikiEditorHandle }>(".editor-pane .shedit")
-          ?.shedit?.setOnChange((v) => {
-            liveEditorCode = v;
-            scheduleCodeSearchParamSync(v, URL_SYNC_DEBOUNCE_MS);
-            if (iframe) schedulePreviewFromEditor(iframe);
-          });
+      const wireEditor = (root: HTMLElement & { shedit?: ShikiEditorHandle }) => {
+        root.shedit?.setOnChange((v) => {
+          liveEditorCode = v;
+          scheduleCodeSearchParamSync(v, URL_SYNC_DEBOUNCE_MS);
+          if (iframe) schedulePreviewFromEditor(iframe);
+        });
       };
-      wireEditorOnChange();
-      queueMicrotask(wireEditorOnChange);
+
+      const onEditorReady = (event: Event) => {
+        const root = event.target;
+        if (!(root instanceof HTMLElement) || !host.contains(root)) return;
+        wireEditor(root as HTMLElement & { shedit?: ShikiEditorHandle });
+      };
+      host.addEventListener("shedit:ready", onEditorReady);
+      layoutSetupCleanups.push(() => host.removeEventListener("shedit:ready", onEditorReady));
+
+      const existing = host.querySelector<HTMLElement & { shedit?: ShikiEditorHandle }>(
+        ".editor-pane .shedit",
+      );
+      if (existing?.shedit) wireEditor(existing);
 
       if (initialSettings.mode === "preview") {
         const onParentMessage = (event: MessageEvent) => {

@@ -127,6 +127,9 @@ export function systemColorSchemeMediaQuery(): MediaQueryList {
   return window.matchMedia("(prefers-color-scheme: dark)");
 }
 
+/** DaisyUI build pinned to the playground app dependency. */
+const PREVIEW_DAISYUI_CDN = "https://cdn.jsdelivr.net/npm/daisyui@5.7.25";
+
 /** Inline Areia tokens (Play CDN cannot run `@plugin "areia"`). Match areia plugin :root / .dark semantics. */
 const DEFAULT_PREVIEW_TAILWIND_STYLE = `
 :root {
@@ -218,8 +221,9 @@ export function buildPreviewShellSrcdoc(
   const previewBgDark = "oklch(10% 0 0)";
   const previewFgDark = "oklch(97% 0 0)";
   const initialDark = systemPrefersDark();
+  const initialTheme = initialDark ? "dark" : "light";
   return `<!DOCTYPE html>
-<html lang="en"${darkClass}>
+<html lang="en"${darkClass} data-theme="${initialTheme}">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -259,6 +263,7 @@ export function buildPreviewShellSrcdoc(
         var THEME_MSG = ${JSON.stringify(PREVIEW_THEME_MESSAGE_TYPE)};
         function apply(dark) {
           document.documentElement.classList.toggle("dark", !!dark);
+          document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
           document.documentElement.style.colorScheme = dark ? "dark" : "light";
         }
         apply(${initialDark ? "true" : "false"});
@@ -270,6 +275,7 @@ export function buildPreviewShellSrcdoc(
         });
       })();
     </script>
+    <link href="${PREVIEW_DAISYUI_CDN}" rel="stylesheet" type="text/css" />
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <style type="text/tailwindcss">${tailwindBlock}</style>
     <script type="importmap" id="importmap">${importMapJson.replace(/</g, "\\u003c")}</script>

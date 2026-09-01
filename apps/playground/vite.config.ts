@@ -1,4 +1,5 @@
 import path from "node:path";
+import tailwindcss from "@tailwindcss/vite";
 import type { Plugin } from "vite";
 import { defineConfig } from "vite";
 const FRAME_ANCESTORS = "frame-ancestors *";
@@ -30,7 +31,7 @@ function allowFraming(): Plugin {
 
 export default defineConfig({
   base: process.env.BASE_PATH || "/",
-  plugins: [allowFraming()],
+  plugins: [tailwindcss(), allowFraming()],
   resolve: {
     alias: {
       shedit: path.resolve(__dirname, "../../packages/shedit/src/index.tsx"),
