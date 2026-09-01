@@ -1,6 +1,6 @@
 import type { BundledLanguage, BundledTheme } from "shiki";
 import { createHighlighter } from "shiki/bundle/web";
-import { Editor } from "../src/index.ts";
+import { Editor } from "../src/index.tsx";
 
 const app = document.querySelector<HTMLElement>("#app")!;
 app.style.height = "100vh";

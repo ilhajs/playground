@@ -33,7 +33,7 @@ export default defineConfig({
   plugins: [allowFraming()],
   resolve: {
     alias: {
-      shedit: path.resolve(__dirname, "../../packages/shedit/src/index.ts"),
+      shedit: path.resolve(__dirname, "../../packages/shedit/src/index.tsx"),
     },
     dedupe: ["typescript", "ilha"],
   },

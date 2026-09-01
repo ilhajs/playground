@@ -13,18 +13,14 @@ export type PlaygroundSettings = {
   style: string;
 };
 
-export const DEFAULT_PLAYGROUND_CODE = `import { ilha } from "ilha";
-
-export default ilha(() => <p>Hello, World!</p>)
+export const DEFAULT_PLAYGROUND_CODE = `export default () => <p>Hello, World!</p>
 `;
 
-export const PREVIEW_TOASTER_BOOTSTRAP = `import { ilha } from "ilha";
-import { Toaster } from "areia/sonner";
+export const PREVIEW_TOASTER_BOOTSTRAP = `import { Toaster } from "areia/sonner";
 
-const __previewToasterIsland = ilha(() => (
+export default () => (
   <Toaster position="bottom-right" closeButton richColors theme="system" />
-));
-export default __previewToasterIsland;
+);
 `;
 
 function decodeBase64Utf8(raw: string): string {
@@ -354,7 +350,7 @@ export function buildPreviewShellSrcdoc(
 
       function preprocessPreviewSource(source) {
         let s = source;
-        const hasMount = /\\.mount\\s*\\(/.test(s);
+        const hasMount = /\\bmount\\s*\\(/.test(s);
         if (!hasMount && /export\\s+default\\b/.test(s)) {
           s = s.replace(/export\\s+default\\s+/, "const __previewDefaultExport = ");
           s =
@@ -363,8 +359,9 @@ export function buildPreviewShellSrcdoc(
             "if (globalThis.__previewActiveGen === __PREVIEW_RUN_GEN) __previewMount(document.getElementById(\\"root\\"), __previewDefaultExport);\\n";
         }
         return s.replace(
-          /([\\w$]+)\\.mount\\(\\s*(document\\.querySelector\\([^)]+\\))\\s*\\)/g,
-          "__previewMount($2, $1)",
+          /([\\w$]+)\\.mount\\(\\s*(document\\.querySelector\\([^)]+\\)|document\\.getElementById\\([^)]+\\))\\s*(?:,\\s*(\\{[\\s\\S]*?\\}))?\\s*\\)/g,
+          (_, comp, el, props) =>
+            props ? \`__previewMount(\${el}, () => \${comp}(\${props}))\` : \`__previewMount(\${el}, \${comp})\`,
         );
       }
 
@@ -379,6 +376,7 @@ export function buildPreviewShellSrcdoc(
 
       function wrapCompiledModule(userJs, runGenId) {
         return [
+          "import { mount as __ilhaMount } from \\"ilha\\";",
           "const __PREVIEW_RUN_GEN = " + runGenId + ";",
           "const __previewUnmountFor = (key) => {",
           "  const fn = globalThis[key];",
@@ -387,22 +385,21 @@ export function buildPreviewShellSrcdoc(
           "    globalThis[key] = null;",
           "  }",
           "};",
-          "const __previewMount = (el, island) => {",
+          "const __previewMount = (el, component) => {",
           "  if (!el) return null;",
           "  if (el.id === \\"root\\" && globalThis.__previewActiveGen !== __PREVIEW_RUN_GEN) return null;",
           "  if (el.id === \\"root\\") __previewUnmountFor(\\"__previewLastUnmount\\");",
           "  if (el.id === \\"preview-toaster\\") __previewUnmountFor(\\"__previewToasterUnmount\\");",
-          "  let result;",
+          "  let unmount;",
           "  try {",
-          "    result = island.mount(el);",
+          "    unmount = __ilhaMount(el, component);",
           "  } catch (err) {",
           "    console.error(\\"[playground preview] mount failed\\", err);",
           "    throw err;",
           "  }",
-          "  const unmount = typeof result?.unmount === \\"function\\" ? result.unmount.bind(result) : null;",
           "  if (el.id === \\"root\\") globalThis.__previewLastUnmount = unmount;",
           "  if (el.id === \\"preview-toaster\\") globalThis.__previewToasterUnmount = unmount;",
-          "  return result;",
+          "  return unmount;",
           "};",
           userJs,
         ].join("\\n");

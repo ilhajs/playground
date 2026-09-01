@@ -1,4 +1,4 @@
-import { effect, html, ilha } from "ilha";
+import { mount as ilhaMount, type View } from "ilha";
 import type { BundledLanguage, BundledTheme, HighlighterCore, ThemedToken } from "shiki";
 import {
   applyTwoslashOverlayHtml,
@@ -164,33 +164,58 @@ function clearLayout(host: HTMLElement): void {
   }
 }
 
-function editorShellMarkup() {
-  return html`
-    <div class="shedit">
-      <div class="shedit__gutter" aria-hidden="true"></div>
+const EDITOR_SHELL_HTML = `<div class="shedit">
+  <div class="shedit__gutter" aria-hidden="true"></div>
+  <div class="shedit__code">
+    <pre class="shedit__mirror shedit__mirror-hl" aria-hidden="true"><code></code></pre>
+    <pre class="shedit__mirror shedit__mirror-twoslash" aria-hidden="true"><code></code></pre>
+    <div class="shedit__placeholder" aria-hidden="true"></div>
+    <textarea
+      class="shedit__textarea"
+      spellcheck="false"
+      autocomplete="off"
+      autocorrect="off"
+      autocapitalize="off"
+    ></textarea>
+  </div>
+  <div class="shedit__network-banner" hidden>
+    <span class="shedit__network-banner-text"></span>
+    <button type="button" class="shedit__network-banner-retry">Retry types</button>
+  </div>
+</div>`;
+
+function editorShellView(ref?: (el: Element | null) => void) {
+  return (
+    <div class="shedit" ref={ref}>
+      <div class="shedit__gutter" aria-hidden="true" />
       <div class="shedit__code">
-        <pre class="shedit__mirror shedit__mirror-hl" aria-hidden="true"><code></code></pre>
-        <pre class="shedit__mirror shedit__mirror-twoslash" aria-hidden="true"><code></code></pre>
-        <div class="shedit__placeholder" aria-hidden="true"></div>
+        <pre class="shedit__mirror shedit__mirror-hl" aria-hidden="true">
+          <code />
+        </pre>
+        <pre class="shedit__mirror shedit__mirror-twoslash" aria-hidden="true">
+          <code />
+        </pre>
+        <div class="shedit__placeholder" aria-hidden="true" />
         <textarea
           class="shedit__textarea"
-          spellcheck="false"
+          spellcheck={false}
           autocomplete="off"
           autocorrect="off"
           autocapitalize="off"
-        ></textarea>
+        />
       </div>
       <div class="shedit__network-banner" hidden>
-        <span class="shedit__network-banner-text"></span>
-        <button type="button" class="shedit__network-banner-retry">Retry types</button>
+        <span class="shedit__network-banner-text" />
+        <button type="button" class="shedit__network-banner-retry">
+          Retry types
+        </button>
       </div>
     </div>
-  `;
+  );
 }
 
 function editorShellHtml(): string {
-  const markup = editorShellMarkup() as { value: string };
-  return markup.value;
+  return EDITOR_SHELL_HTML;
 }
 
 function mountEditorShell(container: HTMLElement): HTMLElement {
@@ -1610,16 +1635,37 @@ function injectEditorStyles(): void {
   document.head.appendChild(style);
 }
 
-export const Editor = ilha(function Editor(input: ShikiEditorInput & Record<string, unknown>) {
-  effect.once(({ host }) => {
-    injectEditorStyles();
-    const root = host.querySelector<HTMLElement>(`.${BLOCK}`)!;
-    const handle = attachShikiEditor(root, input);
-    (root as HTMLElement & { shedit?: ShikiEditorHandle }).shedit = handle;
-    return () => {
-      handle.dispose();
-      delete (root as HTMLElement & { shedit?: ShikiEditorHandle }).shedit;
-    };
-  });
-  return editorShellMarkup();
+function EditorComponent(input: Record<string, unknown>): View {
+  const props = input as ShikiEditorInput & Record<string, unknown>;
+  let editorHandle: ShikiEditorHandle | undefined;
+  let editorRoot: (HTMLElement & { shedit?: ShikiEditorHandle }) | undefined;
+  let attachGen = 0;
+
+  function rootRef(el: Element | null): void {
+    if (el) {
+      const gen = ++attachGen;
+      injectEditorStyles();
+      editorRoot = el as HTMLElement & { shedit?: ShikiEditorHandle };
+      // ilha invokes ref before child nodes are mounted; wait one microtask.
+      queueMicrotask(() => {
+        if (gen !== attachGen || editorRoot !== el) return;
+        editorHandle = attachShikiEditor(editorRoot, props);
+        editorRoot.shedit = editorHandle;
+      });
+    } else {
+      attachGen++;
+      editorHandle?.dispose();
+      if (editorRoot) delete editorRoot.shedit;
+      editorHandle = undefined;
+      editorRoot = undefined;
+    }
+  }
+
+  return editorShellView(rootRef);
+}
+
+export const Editor = Object.assign(EditorComponent, {
+  mount(el: Element, props: ShikiEditorInput) {
+    return ilhaMount(el, () => EditorComponent(props));
+  },
 });

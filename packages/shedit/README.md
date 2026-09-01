@@ -5,7 +5,7 @@ Ilha code editor with **Shiki** syntax highlighting via the **CSS Custom Highlig
 ## Requirements
 
 - **Browser:** `CSS.highlights` (Chrome 105+, Safari 17.2+, Firefox 140+)
-- **Peers:** `ilha` ^0.8, `shiki` ^4
+- **Peers:** `ilha` ^0.14, `shiki` ^4
 
 ## Quick start
 

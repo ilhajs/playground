@@ -44,7 +44,7 @@
     "tsdown": "^0.22.3"
   },
   "peerDependencies": {
-    "ilha": "^0.12.1",
+    "ilha": "^0.14.0",
     "shiki": "^4"
   }
 }

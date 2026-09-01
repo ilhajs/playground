@@ -4,7 +4,7 @@ import "@fontsource-variable/geist";
 import type { BundledTheme } from "shiki";
 import { createHighlighter } from "shiki/bundle/web";
 import { Editor, type ShikiEditorHandle } from "shedit";
-import { effect, ilha, state } from "ilha";
+import { atom, mount } from "ilha";
 import {
   buildPreviewShellSrcdoc,
   DEFAULT_PLAYGROUND_CODE,
@@ -224,62 +224,68 @@ const PLAYGROUND_CSS = `
   }
 `;
 
-const App = ilha(function App() {
-  const settings = state(initialSettings);
+let layoutSetupCleanups: (() => void)[] = [];
+let layoutSetupGen = 0;
+
+function layoutRef(host: Element | null): void {
+  if (host) {
+    const gen = ++layoutSetupGen;
+    queueMicrotask(() => {
+      if (gen !== layoutSetupGen) return;
+      const iframe = host.querySelector<HTMLIFrameElement>("iframe.preview");
+      layoutSetupCleanups = [];
+
+      if (iframe) {
+        iframe.srcdoc = buildPreviewShellSrcdoc(initialSettings.style, previewImportMap);
+        const onIframeLoad = () => {
+          schedulePreviewPost(iframe, getEditorCode());
+          postPreviewTheme(iframe, systemPrefersDark());
+        };
+        iframe.addEventListener("load", onIframeLoad, { once: true });
+
+        const themeMq = systemColorSchemeMediaQuery();
+        const onSystemThemeChange = () => {
+          postPreviewTheme(iframe, themeMq.matches);
+        };
+        themeMq.addEventListener("change", onSystemThemeChange);
+        layoutSetupCleanups.push(() => themeMq.removeEventListener("change", onSystemThemeChange));
+      }
+
+      const wireEditorOnChange = (): void => {
+        document
+          .querySelector<HTMLElement & { shedit?: ShikiEditorHandle }>(".editor-pane .shedit")
+          ?.shedit?.setOnChange((v) => {
+            liveEditorCode = v;
+            scheduleCodeSearchParamSync(v, URL_SYNC_DEBOUNCE_MS);
+            if (iframe) schedulePreviewFromEditor(iframe);
+          });
+      };
+      wireEditorOnChange();
+      queueMicrotask(wireEditorOnChange);
+
+      if (initialSettings.mode === "preview") {
+        const onParentMessage = (event: MessageEvent) => {
+          const data = event.data;
+          if (!data || data.type !== PREVIEW_MESSAGE_TYPE || typeof data.code !== "string") return;
+          liveEditorCode = data.code;
+          const el = document.querySelector<HTMLIFrameElement>("iframe.preview");
+          if (el) schedulePreviewPost(el, data.code);
+        };
+        window.addEventListener("message", onParentMessage);
+        layoutSetupCleanups.push(() => window.removeEventListener("message", onParentMessage));
+      }
+    });
+  } else {
+    layoutSetupGen++;
+    for (const fn of layoutSetupCleanups) fn();
+    layoutSetupCleanups = [];
+  }
+}
+
+function App() {
+  const settings = atom(initialSettings);
 
   systemAppStyles();
-
-  effect.once(({ host }) => {
-    const iframe = host.querySelector<HTMLIFrameElement>("iframe.preview");
-    const cleanups: (() => void)[] = [];
-
-    if (iframe) {
-      const setPreviewShell = () => {
-        iframe.srcdoc = buildPreviewShellSrcdoc(initialSettings.style, previewImportMap);
-      };
-      setPreviewShell();
-      const onIframeLoad = () => {
-        schedulePreviewPost(iframe, getEditorCode());
-        postPreviewTheme(iframe, systemPrefersDark());
-      };
-      iframe.addEventListener("load", onIframeLoad, { once: true });
-
-      const themeMq = systemColorSchemeMediaQuery();
-      const onSystemThemeChange = () => {
-        postPreviewTheme(iframe, themeMq.matches);
-      };
-      themeMq.addEventListener("change", onSystemThemeChange);
-      cleanups.push(() => themeMq.removeEventListener("change", onSystemThemeChange));
-    }
-
-    const wireEditorOnChange = (): void => {
-      document
-        .querySelector<HTMLElement & { shedit?: ShikiEditorHandle }>(".editor-pane .shedit")
-        ?.shedit?.setOnChange((v) => {
-          liveEditorCode = v;
-          scheduleCodeSearchParamSync(v, URL_SYNC_DEBOUNCE_MS);
-          if (iframe) schedulePreviewFromEditor(iframe);
-        });
-    };
-    wireEditorOnChange();
-    queueMicrotask(wireEditorOnChange);
-
-    if (initialSettings.mode === "preview") {
-      const onParentMessage = (event: MessageEvent) => {
-        const data = event.data;
-        if (!data || data.type !== PREVIEW_MESSAGE_TYPE || typeof data.code !== "string") return;
-        liveEditorCode = data.code;
-        const el = document.querySelector<HTMLIFrameElement>("iframe.preview");
-        if (el) schedulePreviewPost(el, data.code);
-      };
-      window.addEventListener("message", onParentMessage);
-      cleanups.push(() => window.removeEventListener("message", onParentMessage));
-    }
-
-    return () => {
-      for (const fn of cleanups) fn();
-    };
-  });
 
   const onLayoutToggle = () => {
     const next = settings().layout === "horizontal" ? "vertical" : "horizontal";
@@ -316,7 +322,7 @@ const App = ilha(function App() {
 
   return (
     <>
-      <div class={`layout ${layoutClass}`}>
+      <div class={`layout ${layoutClass}`} ref={layoutRef}>
         {showEditor ? (
           <div class="editor-pane">
             <Editor
@@ -391,9 +397,9 @@ const App = ilha(function App() {
       </div>
     </>
   );
-});
+}
 
-App.mount(app);
+mount(app, App);
 
 function systemAppStyles(): void {
   const id = "playground-styles";

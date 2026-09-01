@@ -4,7 +4,7 @@ export const PREVIEW_ESM_ORIGIN = "https://esm.sh";
 export const PREVIEW_ESM_TARGET = "es2022";
 export const PREVIEW_TRANSFORM_URL = `${PREVIEW_ESM_ORIGIN}/transform`;
 
-export const PREVIEW_SHARED_RUNTIME_KEYS = ["ilha", "sonner", "alien-signals"] as const;
+export const PREVIEW_SHARED_RUNTIME_KEYS = ["ilha", "sonner", "effect", "alien-signals"] as const;
 export type PreviewSharedRuntimeKey = (typeof PREVIEW_SHARED_RUNTIME_KEYS)[number];
 
 export type PreviewStandalonePackage = {
@@ -16,6 +16,7 @@ export type PreviewStandalonePackage = {
 /**
  * Standalone esm.sh bundles inline their dependencies. @ilha/store must NOT be
  * standalone: it shares alien-signals with ilha — two copies break bind/render sync.
+ * ilha 0.14+ shares effect the same way.
  */
 export const PREVIEW_STANDALONE_PACKAGES: PreviewStandalonePackage[] = [
   { name: "areia", sharedDeps: ["ilha", "sonner"] },
@@ -115,9 +116,17 @@ function ilhaJsxUrls(ilhaMainUrl: string): { runtime: string; devRuntime: string
   };
 }
 
-/** Read alien-signals version from ilha's esm.sh bundle so store shares the same module. */
-export function alienSignalsUrlFromIlhaBundle(ilhaBundleSource: string): string {
-  const ver = ilhaBundleSource.match(/alien-signals@([0-9]+\.[0-9]+\.[0-9]+)/)?.[1] ?? "3.2.1";
+/** Read effect version from ilha's esm.sh bundle so peers share the same module. */
+export function effectBaseUrlFromIlhaBundle(ilhaBundleSource: string): string {
+  const ver =
+    ilhaBundleSource.match(/\/effect@([^/"?]+)/)?.[1]?.replace(/^\^/, "") ?? "4.0.0-rc.112";
+  return `${PREVIEW_ESM_ORIGIN}/effect@${ver}/${PREVIEW_ESM_TARGET}`;
+}
+
+/** @ilha/store still uses alien-signals; pin the same version from its bundle. */
+export function alienSignalsUrlFromStoreBundle(storeBundleSource: string): string {
+  const ver =
+    storeBundleSource.match(/alien-signals@([^?"']+)/)?.[1]?.replace(/^\^/, "") ?? "3.2.1";
   return `${PREVIEW_ESM_ORIGIN}/alien-signals@${ver}/${PREVIEW_ESM_TARGET}/alien-signals.mjs`;
 }
 
@@ -126,18 +135,21 @@ export function buildPreviewImportMapFromPeers(
   peerUrls: Map<string, string>,
   ilhaVersion: string,
   ilhaBundleSource = "",
-  storeUrls?: { storeUrl: string; formUrl: string },
+  storeUrls?: { storeUrl: string; formUrl: string; bundleSource?: string },
   sonnerUrl?: string,
   areiaSonnerUrl?: string,
 ): Record<string, string> {
   const jsx = ilhaJsxUrls(ilhaUrl);
+  const effectBase = effectBaseUrlFromIlhaBundle(ilhaBundleSource);
   const imports: Record<string, string> = {
     ilha: ilhaUrl,
     "ilha/jsx-runtime": jsx.runtime,
     "ilha/jsx-dev-runtime": jsx.devRuntime,
     "react/jsx-runtime": jsx.runtime,
     "react/jsx-dev-runtime": jsx.devRuntime,
-    "alien-signals": alienSignalsUrlFromIlhaBundle(ilhaBundleSource),
+    effect: `${effectBase}/effect.mjs`,
+    "effect/": `${effectBase}/`,
+    "alien-signals": alienSignalsUrlFromStoreBundle(storeUrls?.bundleSource ?? ""),
   };
   if (storeUrls) {
     imports["@ilha/store"] = storeUrls.storeUrl;
@@ -178,6 +190,9 @@ export function assertPreviewImportMapConsistent(map: Record<string, string>): v
         `preview import map: "${storeKey}" must be a versioned .mjs URL (not ?standalone)`,
       );
     }
+  }
+  if (!map["effect"]?.includes("effect@")) {
+    throw new Error('preview import map: "effect" must be a versioned esm.sh URL');
   }
   if (!map["alien-signals"]?.includes("alien-signals@")) {
     throw new Error('preview import map: "alien-signals" must be a versioned esm.sh URL');
@@ -223,6 +238,8 @@ export async function resolvePreviewImportMap(): Promise<Record<string, string>>
       const ilhaRes = await fetch(ilhaUrl);
       if (!ilhaRes.ok) throw new Error(`preview CDN: esm.sh ilha bundle → ${ilhaRes.status}`);
       const ilhaBundleSource = await ilhaRes.text();
+      const storeRes = await fetch(store.storeUrl);
+      const storeBundleSource = storeRes.ok ? await storeRes.text() : "";
       const anchor = PREVIEW_STANDALONE_PACKAGES.find((s) => s.name === SONNER_PEER_STUB_PACKAGE)!;
       const probeUrl = standaloneEntry(anchor.pkg ?? anchor.name, anchor.sharedDeps, ilhaVersion);
       const res = await fetch(probeUrl);
@@ -235,7 +252,7 @@ export async function resolvePreviewImportMap(): Promise<Record<string, string>>
         peers,
         ilhaVersion,
         ilhaBundleSource,
-        { storeUrl: store.storeUrl, formUrl: store.formUrl },
+        { storeUrl: store.storeUrl, formUrl: store.formUrl, bundleSource: storeBundleSource },
         sonnerUrl,
         areiaSonnerUrl,
       );
