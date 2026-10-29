@@ -4,7 +4,7 @@ export const PREVIEW_ESM_ORIGIN = "https://esm.sh";
 export const PREVIEW_ESM_TARGET = "es2022";
 export const PREVIEW_TRANSFORM_URL = `${PREVIEW_ESM_ORIGIN}/transform`;
 
-export const PREVIEW_SHARED_RUNTIME_KEYS = ["ilha", "sonner", "effect", "alien-signals"] as const;
+export const PREVIEW_SHARED_RUNTIME_KEYS = ["ilha", "effect", "alien-signals"] as const;
 export type PreviewSharedRuntimeKey = (typeof PREVIEW_SHARED_RUNTIME_KEYS)[number];
 
 export type PreviewStandalonePackage = {
@@ -14,23 +14,16 @@ export type PreviewStandalonePackage = {
 };
 
 /**
- * Standalone esm.sh bundles inline their dependencies. @ilha/store must NOT be
- * standalone: it shares alien-signals with ilha — two copies break bind/render sync.
+ * Standalone esm.sh bundles inline their dependencies. quando must NOT be
+ * standalone: it shares ilha — two copies break bind/render sync.
  * ilha 0.14+ shares effect the same way.
  */
 export const PREVIEW_STANDALONE_PACKAGES: PreviewStandalonePackage[] = [
-  { name: "areia", sharedDeps: ["ilha", "sonner"] },
   { name: "quando", sharedDeps: ["ilha"] },
 ];
 
-/** Stub used to resolve sonner (and verify areia) peer URLs. */
-const SONNER_PEER_STUB_PACKAGE = "areia";
-
-const PEER_IMPORT_RE = /import\s+"\/([^"@/]+)@([^/]+)\/([^"]+)"/g;
 const ILHA_VER_RE = /ilha@([0-9]+\.[0-9]+\.[0-9]+)/;
 const STORE_VER_RE = /@ilha\/store@([0-9]+\.[0-9]+\.[0-9]+)/;
-const SONNER_VER_RE = /sonner@([0-9]+\.[0-9]+\.[0-9]+)/;
-const AREIA_VER_RE = /areia@([0-9]+\.[0-9]+\.[0-9]+)/;
 
 async function resolveIlhaSingletonFromEsm(): Promise<{ version: string; url: string }> {
   const probe = `${PREVIEW_ESM_ORIGIN}/ilha?target=${PREVIEW_ESM_TARGET}`;
@@ -60,38 +53,6 @@ async function resolveStoreFromEsm(): Promise<{
     storeUrl: `${base}/store.mjs`,
     formUrl: `${base}/form.mjs`,
   };
-}
-
-async function resolveSonnerFromEsm(): Promise<string> {
-  const probe = `${PREVIEW_ESM_ORIGIN}/sonner?target=${PREVIEW_ESM_TARGET}`;
-  const res = await fetch(probe);
-  if (!res.ok) throw new Error(`preview CDN: esm.sh sonner probe → ${res.status}`);
-  const stub = await res.text();
-  const ver = stub.match(SONNER_VER_RE)?.[1];
-  if (!ver) throw new Error("preview CDN: could not parse sonner version from esm.sh");
-  return `${PREVIEW_ESM_ORIGIN}/sonner@${ver}/${PREVIEW_ESM_TARGET}/sonner.mjs`;
-}
-
-async function resolveAreiaSonnerFromEsm(): Promise<string> {
-  const probe = `${PREVIEW_ESM_ORIGIN}/areia/sonner?target=${PREVIEW_ESM_TARGET}`;
-  const res = await fetch(probe);
-  if (!res.ok) throw new Error(`preview CDN: esm.sh areia/sonner probe → ${res.status}`);
-  const stub = await res.text();
-  const ver = stub.match(AREIA_VER_RE)?.[1];
-  if (!ver) throw new Error("preview CDN: could not parse areia version from esm.sh");
-  return `${PREVIEW_ESM_ORIGIN}/areia@${ver}/${PREVIEW_ESM_TARGET}/sonner.mjs`;
-}
-
-/** Parse `import "/pkg@ver/path"` lines from an esm.sh standalone stub. */
-export function parseEsmShPeerImports(stubSource: string): Map<string, string> {
-  const out = new Map<string, string>();
-  for (const m of stubSource.matchAll(PEER_IMPORT_RE)) {
-    const pkg = m[1]!;
-    const ver = m[2]!;
-    const rest = m[3]!;
-    out.set(pkg, `${PREVIEW_ESM_ORIGIN}/${pkg}@${ver}/${rest}`);
-  }
-  return out;
 }
 
 function standaloneEntry(
@@ -132,12 +93,9 @@ export function alienSignalsUrlFromStoreBundle(storeBundleSource: string): strin
 
 export function buildPreviewImportMapFromPeers(
   ilhaUrl: string,
-  peerUrls: Map<string, string>,
   ilhaVersion: string,
   ilhaBundleSource = "",
   storeUrls?: { storeUrl: string; formUrl: string; bundleSource?: string },
-  sonnerUrl?: string,
-  areiaSonnerUrl?: string,
 ): Record<string, string> {
   const jsx = ilhaJsxUrls(ilhaUrl);
   const effectBase = effectBaseUrlFromIlhaBundle(ilhaBundleSource);
@@ -154,15 +112,6 @@ export function buildPreviewImportMapFromPeers(
   if (storeUrls) {
     imports["@ilha/store"] = storeUrls.storeUrl;
     imports["@ilha/store/form"] = storeUrls.formUrl;
-  }
-  if (sonnerUrl) {
-    imports.sonner = sonnerUrl;
-  } else {
-    const sonner = peerUrls.get("sonner");
-    if (sonner && !sonner.includes("standalone")) imports.sonner = sonner;
-  }
-  if (areiaSonnerUrl) {
-    imports["areia/sonner"] = areiaSonnerUrl;
   }
 
   for (const spec of PREVIEW_STANDALONE_PACKAGES) {
@@ -228,34 +177,20 @@ export async function resolvePreviewImportMap(): Promise<Record<string, string>>
   if (resolvedMap) return resolvedMap;
   if (!resolvePromise) {
     resolvePromise = (async () => {
-      const [{ version: ilhaVersion, url: ilhaUrl }, store, sonnerUrl, areiaSonnerUrl] =
-        await Promise.all([
-          resolveIlhaSingletonFromEsm(),
-          resolveStoreFromEsm(),
-          resolveSonnerFromEsm(),
-          resolveAreiaSonnerFromEsm(),
-        ]);
+      const [{ version: ilhaVersion, url: ilhaUrl }, store] = await Promise.all([
+        resolveIlhaSingletonFromEsm(),
+        resolveStoreFromEsm(),
+      ]);
       const ilhaRes = await fetch(ilhaUrl);
       if (!ilhaRes.ok) throw new Error(`preview CDN: esm.sh ilha bundle → ${ilhaRes.status}`);
       const ilhaBundleSource = await ilhaRes.text();
       const storeRes = await fetch(store.storeUrl);
       const storeBundleSource = storeRes.ok ? await storeRes.text() : "";
-      const anchor = PREVIEW_STANDALONE_PACKAGES.find((s) => s.name === SONNER_PEER_STUB_PACKAGE)!;
-      const probeUrl = standaloneEntry(anchor.pkg ?? anchor.name, anchor.sharedDeps, ilhaVersion);
-      const res = await fetch(probeUrl);
-      if (!res.ok) throw new Error(`preview CDN: esm.sh ${probeUrl} → ${res.status}`);
-      const stub = await res.text();
-      const peers = parseEsmShPeerImports(stub);
-      peers.set("ilha", ilhaUrl);
-      const map = buildPreviewImportMapFromPeers(
-        ilhaUrl,
-        peers,
-        ilhaVersion,
-        ilhaBundleSource,
-        { storeUrl: store.storeUrl, formUrl: store.formUrl, bundleSource: storeBundleSource },
-        sonnerUrl,
-        areiaSonnerUrl,
-      );
+      const map = buildPreviewImportMapFromPeers(ilhaUrl, ilhaVersion, ilhaBundleSource, {
+        storeUrl: store.storeUrl,
+        formUrl: store.formUrl,
+        bundleSource: storeBundleSource,
+      });
       assertPreviewImportMapConsistent(map);
       resolvedMap = map;
       return map;

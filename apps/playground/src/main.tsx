@@ -84,8 +84,8 @@ const PLAYGROUND_CSS = `
     display: contents;
   }
   .layout {
-    --color-areia-background: var(--color-white, #fff);
-    --color-areia-border: oklch(93.5% 0 0);
+    --pg-surface: var(--color-white, #fff);
+    --pg-border: oklch(93.5% 0 0);
     box-sizing: border-box;
     height: 100dvh;
     width: 100%;
@@ -94,8 +94,8 @@ const PLAYGROUND_CSS = `
   }
   @media (prefers-color-scheme: dark) {
     .layout {
-      --color-areia-background: oklch(10% 0 0);
-      --color-areia-border: oklch(26.9% 0 0);
+      --pg-surface: oklch(10% 0 0);
+      --pg-border: oklch(26.9% 0 0);
     }
   }
   .layout--horizontal {
@@ -105,10 +105,10 @@ const PLAYGROUND_CSS = `
     flex-direction: column;
   }
   .layout--horizontal .editor-pane {
-    border-right: 1px solid var(--color-areia-border);
+    border-right: 1px solid var(--pg-border);
   }
   .layout--vertical .editor-pane {
-    border-bottom: 1px solid var(--color-areia-border);
+    border-bottom: 1px solid var(--pg-border);
   }
   .editor-pane,
   .preview-pane {
@@ -129,7 +129,7 @@ const PLAYGROUND_CSS = `
     }
     .layout--horizontal .editor-pane {
       border-right: none;
-      border-bottom: 1px solid var(--color-areia-border);
+      border-bottom: 1px solid var(--pg-border);
     }
     .layout--horizontal .editor-pane,
     .layout--horizontal .preview-pane {
@@ -145,7 +145,7 @@ const PLAYGROUND_CSS = `
     width: 100%;
     min-height: 0;
     border: none;
-    background: var(--color-areia-background);
+    background: var(--pg-surface);
   }
   .playground-bar {
     position: fixed;
