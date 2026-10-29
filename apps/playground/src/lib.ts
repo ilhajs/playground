@@ -16,13 +16,6 @@ export type PlaygroundSettings = {
 export const DEFAULT_PLAYGROUND_CODE = `export default () => <p>Hello, World!</p>
 `;
 
-export const PREVIEW_TOASTER_BOOTSTRAP = `import { Toaster } from "areia/sonner";
-
-export default () => (
-  <Toaster position="bottom-right" closeButton richColors theme="system" />
-);
-`;
-
 function decodeBase64Utf8(raw: string): string {
   let b64 = raw.replace(/-/g, "+").replace(/_/g, "/");
   b64 += "=".repeat((4 - (b64.length % 4)) % 4);
@@ -130,68 +123,11 @@ export function systemColorSchemeMediaQuery(): MediaQueryList {
 /** DaisyUI build pinned to the playground app dependency. */
 const PREVIEW_DAISYUI_CDN = "https://cdn.jsdelivr.net/npm/daisyui@5.7.25";
 
-/** Inline Areia tokens (Play CDN cannot run `@plugin "areia"`). Match areia plugin :root / .dark semantics. */
+/** Preview shell base: daisyUI supplies the theme tokens; keep only page-level base. */
 const DEFAULT_PREVIEW_TAILWIND_STYLE = `
-:root {
-  --areia-foreground: oklch(21% 0.006 285.885);
-  --areia-text-inverse: oklch(97% 0 0);
-}
-.dark {
-  --areia-foreground: oklch(97% 0 0);
-  --areia-text-inverse: oklch(21% 0.006 285.885);
-}
-@theme {
-  --color-areia-background: var(--color-white, #fff);
-  --color-areia-foreground: var(--areia-foreground);
-  --color-areia-inverse: var(--areia-text-inverse);
-  --text-color-areia-inverse: var(--areia-text-inverse);
-  --color-areia-surface: var(--color-white, #fff);
-  --color-areia-surface-muted: oklch(97% 0 0);
-  --color-areia-surface-elevated: var(--color-white, #fff);
-  --color-areia-overlay: oklch(0% 0 0 / 0.4);
-  --color-areia-border: oklch(93.5% 0 0);
-  --color-areia-ring: #ff7a37;
-  --color-areia-divider: oklch(14.5% 0 0 / 0.1);
-  --color-areia-primary: oklch(0.5772 0.2324 260);
-  --color-areia-primary-foreground: var(--color-white, #fff);
-  --color-areia-destructive: oklch(63.7% 0.237 25.331);
-  --color-areia-destructive-foreground: var(--color-white, #fff);
-  --color-areia-text-default: oklch(21% 0.006 285.885);
-  --color-areia-text-strong: oklch(14.5% 0 0);
-  --color-areia-text-subtle: oklch(55.6% 0 0);
-  --color-areia-text-muted: oklch(70.8% 0 0);
-  --color-areia-text-disabled: oklch(87% 0 0);
-  --color-areia-control-background: var(--color-white, #fff);
-  --color-areia-control-foreground: oklch(21% 0.006 285.885);
-  --color-areia-control-border: oklch(93.5% 0 0);
-  --color-areia-control-hover: oklch(97% 0 0);
-  --color-areia-control-disabled: oklch(100% 0 0 / 0.5);
-  --color-areia-control-disabled-foreground: oklch(87% 0 0);
-}
-.dark {
-  --color-areia-background: oklch(10% 0 0);
-  --color-areia-foreground: var(--areia-foreground);
-  --color-areia-inverse: var(--areia-text-inverse);
-  --color-areia-surface: oklch(17% 0 0);
-  --color-areia-surface-muted: oklch(26.9% 0 0);
-  --color-areia-surface-elevated: oklch(20% 0 0);
-  --color-areia-border: oklch(26.9% 0 0);
-  --color-areia-divider: oklch(26.9% 0 0);
-  --color-areia-text-default: oklch(97% 0 0);
-  --color-areia-text-strong: oklch(98.5% 0 0);
-  --color-areia-text-subtle: oklch(70.8% 0 0);
-  --color-areia-text-muted: oklch(55.6% 0 0);
-  --color-areia-text-disabled: oklch(43.9% 0 0);
-  --color-areia-control-background: oklch(17% 0 0);
-  --color-areia-control-foreground: oklch(97% 0 0);
-  --color-areia-control-border: oklch(26.9% 0 0);
-  --color-areia-control-hover: oklch(26.9% 0 0);
-  --color-areia-control-disabled: oklch(17% 0 0 / 0.5);
-  --color-areia-control-disabled-foreground: oklch(43.9% 0 0);
-}
 body {
-  background: var(--color-areia-background, white);
-  color: var(--color-areia-text-default);
+  background: var(--color-base-100, white);
+  color: var(--color-base-content, black);
 }
 `.trim();
 
@@ -247,15 +183,6 @@ export function buildPreviewShellSrcdoc(
         padding: 1rem;
         background: inherit;
       }
-      #preview-toaster {
-        position: fixed;
-        inset: 0;
-        z-index: 9999;
-        pointer-events: none;
-      }
-      #preview-toaster > * {
-        pointer-events: auto;
-      }
     </style>
     <script>
       (function () {
@@ -298,22 +225,16 @@ export function buildPreviewShellSrcdoc(
     </style>
   </head>
   <body>
-    <div id="root" class="min-h-full bg-areia-background text-areia-default"></div>
-    <div id="preview-toaster"></div>
+    <div id="root" class="min-h-full bg-base-100 text-base-content"></div>
     <script type="module">
       const MSG = ${JSON.stringify(PREVIEW_MESSAGE_TYPE)};
       const FALLBACK = ${JSON.stringify(DEFAULT_PLAYGROUND_CODE)};
-      const TOASTER_BOOTSTRAP = ${JSON.stringify(PREVIEW_TOASTER_BOOTSTRAP)};
       const TRANSFORM_URL = ${JSON.stringify(transformUrl)};
       let runGen = 0;
-      let toasterGen = 0;
       let transformChain = Promise.resolve();
-      let toasterReady = Promise.resolve();
       let lastPreviewCode = FALLBACK;
       globalThis.__previewActiveGen = 0;
       globalThis.__previewLastUnmount = null;
-      globalThis.__previewToasterUnmount = null;
-      globalThis.__previewToasterMounted = false;
 
       function removeStalePreviewScripts() {
         document.querySelectorAll('[id^="preview-compiled"]').forEach((el) => el.remove());
@@ -395,7 +316,6 @@ export function buildPreviewShellSrcdoc(
           "  if (!el) return null;",
           "  if (el.id === \\"root\\" && globalThis.__previewActiveGen !== __PREVIEW_RUN_GEN) return null;",
           "  if (el.id === \\"root\\") __previewUnmountFor(\\"__previewLastUnmount\\");",
-          "  if (el.id === \\"preview-toaster\\") __previewUnmountFor(\\"__previewToasterUnmount\\");",
           "  let unmount;",
           "  try {",
           "    unmount = __ilhaMount(el, component);",
@@ -404,7 +324,6 @@ export function buildPreviewShellSrcdoc(
           "    throw err;",
           "  }",
           "  if (el.id === \\"root\\") globalThis.__previewLastUnmount = unmount;",
-          "  if (el.id === \\"preview-toaster\\") globalThis.__previewToasterUnmount = unmount;",
           "  return unmount;",
           "};",
           userJs,
@@ -467,51 +386,6 @@ export function buildPreviewShellSrcdoc(
         return next;
       }
 
-      function unmountPreviewToaster() {
-        if (typeof globalThis.__previewToasterUnmount === "function") {
-          try {
-            globalThis.__previewToasterUnmount();
-          } catch (_) {}
-          globalThis.__previewToasterUnmount = null;
-        }
-        document
-          .querySelectorAll('[id^="preview-toaster-compiled"]')
-          .forEach((el) => el.remove());
-        globalThis.__previewToasterMounted = false;
-      }
-
-      function preprocessToasterBootstrap(source) {
-        let s = source.trim();
-        s = s.replace(/export\\s+default\\s+/, "const __previewDefaultExport = ");
-        return (
-          s.trimEnd() +
-          "\\nexport default __previewDefaultExport;\\n" +
-          "__previewMount(document.getElementById(\\"preview-toaster\\"), __previewDefaultExport);\\n"
-        );
-      }
-
-      async function mountPreviewToaster() {
-        const host = document.getElementById("preview-toaster");
-        if (!host) return;
-        const gen = ++toasterGen;
-        unmountPreviewToaster();
-        try {
-          const source = preprocessToasterBootstrap(TOASTER_BOOTSTRAP);
-          const js = await transformPreviewSource(source);
-          if (gen !== toasterGen) return;
-          const mod = document.createElement("script");
-          mod.type = "module";
-          mod.id = "preview-toaster-compiled-" + gen;
-          mod.textContent = wrapCompiledModule(js, gen);
-          document.body.appendChild(mod);
-          globalThis.__previewToasterMounted = true;
-        } catch (err) {
-          globalThis.__previewToasterMounted = false;
-          console.warn("[playground preview] Toaster bootstrap failed:", err);
-        }
-      }
-
-      toasterReady = mountPreviewToaster();
 
       window.addEventListener("error", (event) => {
         if (!event.filename?.includes("preview-compiled") && event.filename !== "") return;
@@ -524,16 +398,11 @@ export function buildPreviewShellSrcdoc(
       });
       window.addEventListener("unhandledrejection", (event) => {
         const text = event.reason?.stack ? String(event.reason.stack) : String(event.reason ?? "");
-        if (!text || /preview-toaster/i.test(text)) return;
+        if (!text) return;
         showError(text);
       });
 
       async function runUserCode(code) {
-        await toasterReady;
-        if (!globalThis.__previewToasterMounted) {
-          toasterReady = mountPreviewToaster();
-          await toasterReady;
-        }
         const gen = ++runGen;
         globalThis.__previewActiveGen = gen;
         lastPreviewCode = code.trim() || FALLBACK;
